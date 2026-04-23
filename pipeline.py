@@ -315,15 +315,19 @@ class Pipeline:
 {material_section}{style_section}
 {f'## 额外要求{chr(10)}{extra_requirements}' if extra_requirements else ''}
 
-请输出 JSON：
+## 叙事弧线要求（核心）
+爆款文章不是信息罗列，而是「带节奏」。你的大纲必须包含这条情绪曲线：
+1. **钩子（开头）**：用一个反常识的数据/场景/提问制造「停顿感」，让读者产生「这跟我有关」的感觉
+2. **痛点放大（前半段）**：把读者模糊的焦虑具象化，用案例和数据让他们点头——"对，就是这样"
+3. **转折/方案（中段）**：给出读者没想到的角度或解决方案，制造「原来如此」的顿悟感
+4. **实操落地（后半段）**：具体的工具/步骤/清单，让读者觉得「看完就能用」
+5. **情绪收尾（结尾）**：用金句或开放性问题收尾，制造转发欲
+
+请严格按以下 JSON 格式输出（注意：title_candidates 必须是字符串数组，不是对象）：
+
+JSON 格式示例：
 {{
-  "title_candidates": [
-    "标题方案1（爆款型，带数字/悬念）",
-    "标题方案2（共鸣型，击中痛点）",
-    "标题方案3（反常识型，制造好奇）",
-    "标题方案4（实用型，明确价值）",
-    "标题方案5（情感型，引发转发）"
-  ],
+  "title_candidates": ["标题文本1", "标题文本2", "标题文本3", "标题文本4", "标题文本5"],
   "hook": "开头前3句的内容设计（必须在10秒内抓住读者，说明具体怎么写）",
   "sections": [
     {{
@@ -338,21 +342,26 @@ class Pipeline:
 }}
 
 要求：
-1. 标题候选必须风格各异，覆盖不同吸引策略
-2. sections 数量 {section_count} 个，每个 section 的 word_budget 总和 ≈ {word_target} 字
-3. hook 必须具体到「怎么写」，不要只说「用一个故事开头」
-4. 整体结构要有节奏感：紧→松→紧，或低→高→更高"""
+1. title_candidates 是字符串数组，每个元素就是一个完整的标题文本，不要加"标题方案1"之类的前缀
+2. 标题必须风格各异，覆盖不同吸引策略：爆款型（带数字/悬念）、共鸣型（击中痛点）、反常识型（制造好奇）、实用型（明确价值）、情感型（引发转发）
+3. sections 数量 {section_count} 个，每个 section 的 word_budget 总和 ≈ {word_target} 字
+4. hook 必须具体到「怎么写」，不要只说「用一个故事开头」
+5. 整体结构要有节奏感：紧→松→紧，或低→高→更高
+6. 每个 section 的 writing_guide 必须说明「这个位置读者应该有什么情绪」"""
 
         resp = with_retry(lambda: self.llm.complete([
-            Message("system", "你是顶尖新媒体内容策划师，擅长设计爆款文章结构。只输出合法 JSON。"),
+            Message("system", "你是顶尖新媒体内容策划师，擅长设计爆款文章结构。只输出合法 JSON，title_candidates 必须是字符串数组。"),
             Message("user", prompt),
         ], temperature=0.8))
 
         data = parse_json(resp.content)
 
         titles = data.get("title_candidates", [])
+        # 清理标题：去掉可能残留的前缀
         cleaned = []
         for t in titles:
+            if not isinstance(t, str):
+                t = str(t)
             t = re.sub(r'^标题方案\d+[（(][^）)]*[）)][:：]?\s*', '', t)
             t = re.sub(r'^\d+[.、]\s*', '', t)
             cleaned.append(t.strip() if t.strip() else t)
@@ -524,33 +533,40 @@ class Pipeline:
 
     def _generate_hook(self, topic: str, title: str, hook_design: str,
                        platform: str, style_instruction: str) -> str:
-        prompt = f"""你是一位顶尖的{platform}写手。请为以下文章写一个抓人的开头。
+        prompt = f"""你是一位顶尖的{platform}写手，粉丝50万+，以「说人话」著称。请为以下文章写一个抓人的开头。
 
 ## 标题
 {title}
 
-## 开头设计
+## 开头设计方向
 {hook_design}
 
 ## 主题
 {topic}
 {style_instruction}
-## 要求
-- 直接进入，不要"今天我们来聊聊"这种废话
-- 开头3句内必须让读者产生「这篇文章跟我有关」的感觉
-- 字数 150-300 字
-- 只输出正文，不要任何标注"""
+## 写作要求（这是爆款文章，不是公文）
+1. 用「你」开头或第二人称视角，像跟朋友聊天一样
+2. 第一句话就要制造「停顿感」——可以是反常识的数据、一个扎心的提问、或一个让人共鸣的场景
+3. 禁止使用以下开头套路：
+   - "今天我们来聊聊..." / "在这个时代..." / "随着...的发展"
+   - "你有没有想过..."（太老套）
+   - 任何以"首先"、"其次"开头的句子
+4. 好的开头示例：
+   - 直接甩一个反常识的数据："2023年，683万对——这是中国近十年最低的结婚登记数。"
+   - 用一个具体场景切入："上周五，我妈第27次在饭桌上问我：你到底什么时候结婚？我放下筷子，说了句让她沉默的话。"
+   - 抛一个尖锐的问题："如果结婚是一笔投资，年化收益是多少？"
+5. 字数 150-300 字，只输出正文，不要任何标注或解释"""
 
         resp = self.llm.complete([
-            Message("system", f"你是{platform}爆款写手，文笔流畅，开头必抓人。直接输出正文。"),
+            Message("system", f"你是一位{platform}爆款写手，50万粉丝，风格犀利、真诚、接地气。你写的东西不像AI，像一个有阅历的朋友在跟你掏心窝子。直接输出正文，不要任何标注。"),
             Message("user", prompt),
-        ], temperature=0.8)
+        ], temperature=0.85)
         return resp.content.strip()
 
     def _generate_section(self, topic: str, title: str, section: dict,
                           prev_tail: str, all_sections: list, platform: str,
                           style_instruction: str, material_hint: str) -> str:
-        prompt = f"""继续写文章的下一部分。
+        prompt = f"""继续写文章的下一部分。你是一位有50万粉丝的{platform}写手，风格真诚、接地气、有观点。
 
 ## 标题
 {title}
@@ -558,7 +574,7 @@ class Pipeline:
 ## 当前小节
 标题：{section.get('title', '')}
 要点：{'；'.join(section.get('key_points', []))}
-字数预算：约 {section.get('word_budget', 500)} 字
+字数预算：约 {section.get('word_budget', 500)} 字（严格控制，不要超出太多）
 写作指导：{section.get('writing_guide', '')}
 
 ## 上文结尾（必须平滑衔接）
@@ -568,26 +584,32 @@ class Pipeline:
 {' → '.join(s.get('title', '') for s in all_sections)}
 {material_hint}
 {style_instruction}
-## 要求
-- 承接上文语气，不要突兀跳转
-- 本节标题用加粗显示（**标题**）
-- 只输出正文，不要任何标注"""
+## 写作要求（爆款标准，不是写报告）
+1. 像朋友聊天一样写，用「你」称呼读者，偶尔用「我」带入自己的视角
+2. 每个观点必须配一个具体的案例或数据——不要泛泛而谈
+3. 案例要「不完美」才真实——不要每个案例都刚好切中论点。可以用"我朋友小X，情况其实挺复杂的"、"这个方法不一定适合所有人"、"说实话我当时也犹豫了很久"这种带瑕疵的叙述
+4. 段落之间用口语化过渡，不要用"接下来"、"另外"、"此外"这种连接词
+5. 金句自然融入正文，不要用「金句：」标签标注——读者看得出来你在刻意造句
+6. 本节标题用加粗显示（**标题**），但标题本身要有吸引力，不要用"第一点"、"第二点"
+7. 禁止出现：「在当今社会」「众所周知」「不可否认」「值得一提的是」「不禁」「仿佛」「宛如」「霎时」「金句：」
+8. 严格控制在 {section.get('word_budget', 500)} 字左右（±10%），不要写太多
+9. 只输出正文，不要任何标注"""
 
         resp = self.llm.complete([
-            Message("system", f"你是{platform}写手，擅长让段落之间自然过渡。直接输出正文。"),
+            Message("system", f"你是一位{platform}爆款写手，50万粉丝。你的文章特点是：说人话、有故事、有观点、不啰嗦。读者看完会转发给朋友说「这篇写得太对了」。严格控制字数，不要写多了。直接输出正文。"),
             Message("user", prompt),
-        ], temperature=0.8)
+        ], temperature=0.85, max_tokens=min(4096, int(section.get('word_budget', 500)) * 3))
         return resp.content.strip()
 
     def _generate_ending(self, topic: str, title: str, cta: str,
                          tags: list, prev_tail: str, platform: str,
                          style_instruction: str) -> str:
-        prompt = f"""写文章的结尾部分。
+        prompt = f"""写文章的结尾部分。你是一位有50万粉丝的{platform}写手。
 
 ## 标题
 {title}
 
-## 结尾设计
+## 结尾设计方向
 {cta}
 
 ## 上文结尾
@@ -596,16 +618,20 @@ class Pipeline:
 ## 标签
 {' '.join('#' + t for t in tags)}
 {style_instruction}
-## 要求
-- 总结全文核心观点（1-2句）
-- 自然引导互动（点赞/转发/评论），不要生硬
-- 字数 100-200 字
-- 只输出正文，不要任何标注"""
+## 写作要求
+1. 不要"总而言之"、"综上所述"、"最后"这种总结式开头
+2. 用一个短句或金句收尾，要有力量感——让人读完想转发
+3. 互动引导要自然，像朋友之间的对话：
+   - 差："欢迎点赞转发评论关注"（机器人语气）
+   - 好："你身边有不结婚的朋友吗？把这篇转给ta，看看ta怎么说。"
+4. 可以用反问、选择题、或一个开放性的思考来引导讨论
+5. 严格控制在 100-150 字，不要写太长，结尾要干脆利落
+6. 只输出正文，不要任何标注"""
 
         resp = self.llm.complete([
-            Message("system", f"你是{platform}写手，擅长写出让人想转发的结尾。直接输出正文。"),
+            Message("system", f"你是{platform}爆款写手，擅长写出让人想转发的结尾。你的结尾不煽情、不说教，但就是让人忍不住想分享。结尾要短、有力、干脆。直接输出正文。"),
             Message("user", prompt),
-        ], temperature=0.8)
+        ], temperature=0.85, max_tokens=1024)
         return resp.content.strip()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -669,8 +695,10 @@ class Pipeline:
 ## 修订规则
 1. 认真理解用户的修改意见，针对性修改
 2. 保持文章整体结构和风格一致
-3. 保持字数大致不变（±20%），除非用户明确要求增减
-4. 直接输出修订后的完整全文，不要加任何标注或说明"""
+3. 如果修改意见要求精简字数，必须严格执行——删掉重复段落、压缩冗余案例、砍掉多余客套话
+4. 结尾部分必须干脆利落：一句金句收尾 + 一个互动引导，不要超过 150 字
+5. 不要出现多个"最后一句"或重复收尾
+6. 直接输出修订后的完整全文，不要加任何标注或说明"""
 
         resp = with_retry(lambda: self.llm.complete([
             Message("system", f"你是{platform}资深编辑，擅长根据反馈精准修改文章。直接输出修订后的全文。"),
@@ -1057,6 +1085,97 @@ class Pipeline:
     # 完整流程
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _auto_revise(
+        self,
+        content: str,
+        outline: Outline,
+        topic: str,
+        platform: str,
+        style_profile: StyleProfile | None = None,
+        max_rounds: int = 2,
+        target_words: tuple = (1500, 3000),
+    ) -> tuple[str, ValidationResult]:
+        """自动迭代：验证 → 发现问题 → 自动修订 → 再验证，最多 max_rounds 轮"""
+        validation = self.validator.validate(content, platform)
+        word_count = len(content)
+
+        for round_num in range(1, max_rounds + 1):
+            # 检查是否需要修订
+            issues_to_fix = []
+            for issue in validation.issues:
+                if issue.severity == "error":
+                    issues_to_fix.append(issue)
+                elif issue.rule in ("AI_MARKER", "FORBIDDEN", "META", "REPORT",
+                                    "COLLECTIVE", "AI_FILLER", "REPETITIVE",
+                                    "CONSECUTIVE_LE", "EXCLAMATION"):
+                    issues_to_fix.append(issue)
+
+            # 字数检查
+            too_long = word_count > target_words[1]
+            too_short = word_count < target_words[0]
+
+            if not issues_to_fix and not too_long and not too_short:
+                break
+
+            print(f"\n🔄 自动修订第 {round_num} 轮（当前 {word_count} 字，目标 {target_words[0]}-{target_words[1]}）...")
+
+            # 构建修订指令
+            fix_instructions = []
+            if too_long:
+                target = int((target_words[0] + target_words[1]) / 2)
+                excess = word_count - target
+                fix_instructions.append(
+                    f"【字数超标】当前 {word_count} 字，必须精简到 {target} 字左右（需删掉约 {excess} 字）。"
+                    f"具体操作：1) 删除重复论述和冗余过渡段 2) 每个案例只保留最有力的一个，删掉雷同的 3) "
+                    f"去掉所有「金句：」标签，把金句自然融入正文 4) 结尾砍掉多余的客套话，只留一句收尾+一个互动引导"
+                )
+            if too_short:
+                target = int((target_words[0] + target_words[1]) / 2)
+                fix_instructions.append(
+                    f"当前 {word_count} 字，太短了。请扩充到 {target} 字左右："
+                    f"每个观点增加一个案例或数据支撑，增加金句密度。"
+                )
+
+            for issue in issues_to_fix[:5]:
+                if issue.rule == "AI_MARKER":
+                    fix_instructions.append(f"减少 AI 痕迹词：{issue.description}，用更口语化的表达替换")
+                elif issue.rule == "FORBIDDEN":
+                    fix_instructions.append(f"删除禁止句式：{issue.description}")
+                elif issue.rule == "META":
+                    fix_instructions.append(f"去掉元叙事/说教：{issue.description}")
+                elif issue.rule == "REPORT":
+                    fix_instructions.append(f"去掉报告腔：{issue.description}，改成口语化表达")
+                elif issue.rule == "COLLECTIVE":
+                    fix_instructions.append(f"删除集体套话：{issue.description}")
+                elif issue.rule == "AI_FILLER":
+                    fix_instructions.append(f"精简套话连接词：{issue.description}")
+                elif issue.rule == "REPETITIVE":
+                    fix_instructions.append(f"避免重复表达：{issue.description}")
+                elif issue.rule == "CONSECUTIVE_LE":
+                    fix_instructions.append(f"减少「了」字连用：{issue.description}")
+                elif issue.rule == "EXCLAMATION":
+                    fix_instructions.append(f"减少感叹号：{issue.description}")
+
+            instruction = "\n".join(fix_instructions)
+
+            try:
+                content = self.revise_content(
+                    current_content=content,
+                    instruction=instruction,
+                    topic=topic,
+                    outline=outline,
+                    platform=platform,
+                    style_profile=style_profile,
+                )
+                word_count = len(content)
+                validation = self.validator.validate(content, platform)
+                print(f"   修订后：{word_count} 字 | 得分 {validation.score}/100")
+            except Exception as e:
+                print(f"   修订失败：{e}，跳过本轮")
+                break
+
+        return content, validation
+
     def run_full(
         self,
         topic: str,
@@ -1094,14 +1213,20 @@ class Pipeline:
             material=material, style_profile=style_profile,
         )
         word_count = len(content)
-        print(f"   生成完成：{word_count} 字")
+        print(f"   初稿完成：{word_count} 字")
 
-        print("\n🔍 Step 4: 写后验证...")
-        validation = self.validator.validate(content, platform)
-        print(f"   得分：{validation.score}/100 | "
+        # Step 4: 自动迭代验证+修订
+        print("\n🔍 Step 4: 验证 + 自动修订...")
+        target_words = (1500, 3000) if platform == "wechat" else (800, 2000)
+        content, validation = self._auto_revise(
+            content, outline, topic, platform, style_profile,
+            max_rounds=2, target_words=target_words,
+        )
+        word_count = len(content)
+        print(f"   最终：{word_count} 字 | 得分 {validation.score}/100 | "
               f"{'✅ 通过' if validation.passed else '⚠️ 有问题'}")
         if validation.issues:
-            for issue in validation.issues[:5]:
+            for issue in validation.issues[:3]:
                 print(f"   [{issue.severity}] {issue.description}")
 
         print("\n📐 Step 5: 生成排版...")

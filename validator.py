@@ -61,17 +61,17 @@ COLLECTIVE_PATTERNS = [
 ]
 
 # ── 常见敏感词（广告法违禁词 + 平台敏感词 + 医疗/金融）──
+# 注意：单字词和常见词不收录，避免误杀。只收录明确违规的词组。
 SENSITIVE_WORDS = [
-    # 广告法极限词
-    "最好", "第一", "唯一", "首个", "首选", "最佳", "最优", "最高", "最低", "最大", "最小",
-    "绝对", "100%", "保证", "永远", "万能", "顶级", "极致", "国家级", "世界级", "全网最",
-    "史上最", "独一无二", "无与伦比", "前无古人", "绝无仅有", "史无前例", "遥遥领先",
+    # 广告法极限词（只收录词组，不收单字）
+    "全网最", "史上最", "独一无二", "无与伦比", "前无古人", "绝无仅有",
+    "史无前例", "遥遥领先",
     # 医疗/健康
     "治愈", "根治", "特效", "神药", "偏方", "秘方", "祖传", "包治", "药到病除",
     "癌症", "肿瘤", "艾滋病", "性病", "不孕不育",
     # 金融/理财
     "暴富", "躺赚", "零风险", "稳赚", "割韭菜", "庞氏", "资金盘", "传销",
-    "保本保息", "年化收益", "日赚", "月入百万", "财务自由",
+    "保本保息", "日赚", "月入百万",
     # 色情/低俗
     "约炮", "一夜情", "裸聊", "色情", "淫秽", "成人用品",
     # 政治敏感
@@ -133,21 +133,31 @@ class Validator:
             if m:
                 issues.append(Issue("COLLECTIVE", "warning", f"集体套话：「{m[0]}」", m[0]))
 
-        # 6. 敏感词
+        # 6. 敏感词（用精确匹配，避免子串误杀）
         all_sensitive = SENSITIVE_WORDS + self.extra_sensitive
         for w in all_sensitive:
-            if w in content:
-                issues.append(Issue("SENSITIVE", "warning", f"敏感词/广告法违禁词：「{w}」", w))
+            # 对于短词（<=2字），要求前后不是中文字符，避免误杀
+            if len(w) <= 2:
+                pattern = r'(?<![\u4e00-\u9fff])' + re.escape(w) + r'(?![\u4e00-\u9fff])'
+                if re.search(pattern, content):
+                    issues.append(Issue("SENSITIVE", "warning", f"敏感词/广告法违禁词：「{w}」", w))
+            else:
+                if w in content:
+                    issues.append(Issue("SENSITIVE", "warning", f"敏感词/广告法违禁词：「{w}」", w))
 
         # 7. 字数检查
         if platform == "wechat":
             if word_count < 800:
+                issues.append(Issue("LENGTH", "error", f"公众号文章偏短（{word_count}字，建议1500-3000）"))
+            elif word_count < 1500:
                 issues.append(Issue("LENGTH", "warning", f"公众号文章偏短（{word_count}字，建议1500+）"))
-            elif word_count > 5000:
-                issues.append(Issue("LENGTH", "warning", f"公众号文章偏长（{word_count}字，建议3000以内）"))
+            elif word_count > 3000:
+                issues.append(Issue("LENGTH", "error", f"公众号文章偏长（{word_count}字，建议3000以内，当前超出{word_count-3000}字）"))
         elif platform == "toutiao":
             if word_count < 500:
-                issues.append(Issue("LENGTH", "warning", f"头条文章偏短（{word_count}字，建议800+）"))
+                issues.append(Issue("LENGTH", "error", f"头条文章偏短（{word_count}字，建议800+）"))
+            elif word_count > 2000:
+                issues.append(Issue("LENGTH", "error", f"头条文章偏长（{word_count}字，建议2000以内）"))
 
         # 8. 段落过长
         paras = [p for p in re.split(r"\n{2,}", content) if p.strip()]
@@ -199,7 +209,11 @@ class Validator:
 
         error_count = sum(1 for i in issues if i.severity == "error")
         warning_count = sum(1 for i in issues if i.severity == "warning")
-        score = max(0, 100 - error_count * 15 - warning_count * 5)
+        # 字数问题单独加重扣分
+        length_issues = [i for i in issues if i.rule == "LENGTH"]
+        length_penalty = sum(15 for i in length_issues if i.severity == "error") + sum(5 for i in length_issues if i.severity == "warning")
+        other_penalty = sum(15 for i in issues if i.severity == "error" and i.rule != "LENGTH") + sum(5 for i in issues if i.severity == "warning" and i.rule != "LENGTH")
+        score = max(0, 100 - other_penalty - length_penalty)
 
         return ValidationResult(
             passed=error_count == 0,

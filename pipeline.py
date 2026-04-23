@@ -48,6 +48,49 @@ FORMAT_TEMPLATES = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 文章结构模板
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ARTICLE_TEMPLATES = {
+    "listicle": {
+        "name": "清单体",
+        "desc": "N个方法/技巧/建议，结构清晰，完读率高",
+        "mode": "干货型",
+        "outline_hint": "围绕一个核心主题，列出 3-7 个具体方法/技巧/建议，每个方法独立成节，带案例或数据支撑",
+        "section_guide": "每节：标题→痛点→方法→案例→小结",
+    },
+    "comparison": {
+        "name": "对比测评",
+        "desc": "A vs B，帮读者做决策",
+        "mode": "测评型",
+        "outline_hint": "选取两个或多个对象进行对比，从多个维度分析优劣，给出明确推荐",
+        "section_guide": "每节：维度→A的表现→B的表现→结论",
+    },
+    "story": {
+        "name": "情感故事",
+        "desc": "真实案例切入，以小见大",
+        "mode": "故事型",
+        "outline_hint": "用一个真实或虚构的故事开头，引出核心观点，通过多个案例层层递进，结尾升华主题",
+        "section_guide": "每节：场景→冲突→转折→启示",
+    },
+    "hot_take": {
+        "name": "争议观点",
+        "desc": "反常识，引发讨论和传播",
+        "mode": "争议型",
+        "outline_hint": "抛出一个反常识的核心观点，用 3-5 个论据支撑，预判反驳并回应，结尾引导讨论",
+        "section_guide": "每节：论点→论据→案例→反驳预判",
+    },
+    "tutorial": {
+        "name": "教程指南",
+        "desc": "手把手教，步骤明确",
+        "mode": "干货型",
+        "outline_hint": "针对一个具体问题，给出完整的解决方案，按步骤拆解，每步配图或案例",
+        "section_guide": "每节：步骤编号→具体操作→注意事项→常见错误",
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 数据模型
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -808,6 +851,196 @@ class Pipeline:
         ], temperature=0.3))
 
         return parse_json(resp.content)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 新功能：单节重新生成
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def regenerate_section(
+        self,
+        topic: str,
+        outline: Outline,
+        section_index: int,
+        current_content: str,
+        platform: str = "wechat",
+        style_profile: StyleProfile | None = None,
+        material: dict | None = None,
+    ) -> str:
+        """重新生成指定小节，保持其他部分不变"""
+        sections = outline.sections
+        if section_index < 0 or section_index >= len(sections):
+            raise ValueError(f"无效的小节索引：{section_index}")
+
+        section = sections[section_index]
+        style_instruction = self._build_style_instruction(style_profile)
+        material_hint = self._get_material_hint(material, section_index)
+
+        # 从当前内容中提取该小节前后的文本
+        # 用小节标题作为锚点
+        title = section.get('title', '')
+        parts = current_content.split(title)
+
+        # 找到上文结尾
+        prev_tail = ""
+        if len(parts) > 1:
+            prev_text = parts[0].strip()
+            prev_tail = prev_text[-200:] if prev_text else ""
+
+        # 找到下文开头
+        next_head = ""
+        if len(parts) > 2:
+            next_text = title.join(parts[1:]).strip()
+            next_head = next_text[:200] if next_text else ""
+        elif len(parts) == 2:
+            next_text = parts[1].strip()
+            next_head = next_text[:200] if next_text else ""
+
+        prompt = f"""重新写文章的一个小节，替换原来的内容。
+
+## 标题
+{outline.selected_title}
+
+## 要重写的小节
+标题：{title}
+要点：{'；'.join(section.get('key_points', []))}
+字数预算：约 {section.get('word_budget', 500)} 字
+写作指导：{section.get('writing_guide', '')}
+
+## 上文结尾（必须平滑衔接）
+...{prev_tail}
+
+## 下文开头（新内容必须能与此衔接）
+{next_head}...
+
+## 全文大纲（了解全局位置）
+{' → '.join(s.get('title', '') for s in sections)}
+{material_hint}
+{style_instruction}
+## 要求
+1. 承接上文语气，不要突兀跳转
+2. 结尾要能与下文自然衔接
+3. 本节标题用加粗显示（**标题**）
+4. 只输出本节正文，不要输出其他小节
+5. 不要输出任何标注或说明"""
+
+        resp = self.llm.complete([
+            Message("system", f"你是{platform}写手，擅长重写单个小节并保持全文连贯。直接输出正文。"),
+            Message("user", prompt),
+        ], temperature=0.8)
+
+        new_section = resp.content.strip()
+
+        # 拼接：上文 + 新小节 + 下文
+        result_parts = []
+        if len(parts) >= 2:
+            result_parts.append(parts[0])  # 上文（含原标题）
+            result_parts.append(new_section)  # 新小节
+            if len(parts) > 2:
+                result_parts.append(title.join(parts[2:]))  # 下文
+            elif len(parts) == 2 and parts[1]:
+                # 找到下一个section的标题作为分割点
+                remaining = parts[1]
+                for next_sec in sections[section_index+1:]:
+                    next_title = next_sec.get('title', '')
+                    if next_title and next_title in remaining:
+                        idx = remaining.index(next_title)
+                        result_parts.append(remaining[idx:])
+                        remaining = ""
+                        break
+                if remaining:
+                    result_parts.append(remaining)
+            return "".join(result_parts)
+        else:
+            return new_section
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 新功能：文章综合审计
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def audit_article(self, content: str, topic: str, platform: str = "wechat") -> dict:
+        """对文章进行全方位审计：AI味、敏感词、内容质量、结构、SEO"""
+        validation = self.validator.validate(content, platform)
+
+        prompt = f"""你是一位资深的新媒体内容审计师。请对以下文章进行全方位质量审计。
+
+## 主题
+{topic}
+
+## 平台
+{"公众号" if platform == "wechat" else "头条"}
+
+## 文章内容
+{content[:4000]}
+
+请从以下维度审计，输出 JSON：
+{{
+  "overall_score": 85,
+  "overall_verdict": "通过/需修改/不通过",
+  "dimensions": {{
+    "ai_flavor": {{
+      "score": 80,
+      "level": "轻微/中等/严重",
+      "issues": ["问题1", "问题2"],
+      "suggestions": ["建议1", "建议2"]
+    }},
+    "sensitive_words": {{
+      "score": 90,
+      "issues": ["敏感词1", "敏感词2"],
+      "risk_level": "低/中/高"
+    }},
+    "content_quality": {{
+      "score": 75,
+      "info_increment": "高/中/低",
+      "logic_flow": "好/一般/差",
+      "evidence_strength": "强/中/弱",
+      "issues": ["问题1"],
+      "suggestions": ["建议1"]
+    }},
+    "readability": {{
+      "score": 85,
+      "paragraph_balance": "好/一般/差",
+      "sentence_variety": "好/一般/差",
+      "mobile_friendly": true,
+      "issues": ["问题1"],
+      "suggestions": ["建议1"]
+    }},
+    "engagement": {{
+      "score": 70,
+      "hook_strength": "强/中/弱",
+      "cta_effectiveness": "好/一般/差",
+      "shareability": "高/中/低",
+      "issues": ["问题1"],
+      "suggestions": ["建议1"]
+    }},
+    "platform_fit": {{
+      "score": 80,
+      "word_count_ok": true,
+      "tone_match": true,
+      "issues": ["问题1"],
+      "suggestions": ["建议1"]
+    }}
+  }},
+  "top_fixes": ["最重要的修改1", "最重要的修改2", "最重要的修改3"],
+  "highlight": "文章最大的亮点（一句话）"
+}}"""
+
+        resp = with_retry(lambda: self.llm.complete([
+            Message("system", "你是资深新媒体内容审计师，擅长从多个维度评估文章质量。只输出合法 JSON。"),
+            Message("user", prompt),
+        ], temperature=0.3))
+
+        audit = parse_json(resp.content)
+
+        # 合并验证器结果
+        audit["validator"] = {
+            "score": validation.score,
+            "passed": validation.passed,
+            "issue_count": len(validation.issues),
+            "issues": [{"rule": i.rule, "severity": i.severity, "description": i.description}
+                       for i in validation.issues],
+        }
+
+        return audit
 
     # ─────────────────────────────────────────────────────────────────────────
     # 完整流程

@@ -3,13 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>InkFlow — AI 写作工坊 v2</title>
+<title>InkFlow — AI 写作工坊 v4</title>
 <style>
 :root{--bg:#0f1117;--bg2:#181b23;--bg3:#1e222d;--surface:#232836;--surface2:#2a3040;
 --border:#333a4a;--text:#e8ecf2;--text2:#9ca3b0;--text3:#6b7280;
 --blue:#4f8ff7;--blue-bg:#1a2a4a;--green:#34d399;--green-bg:#0d3326;
 --red:#f87171;--red-bg:#3b1515;--yellow:#fbbf24;--yellow-bg:#3b2f0a;
 --purple:#a78bfa;--radius:10px;--shadow:0 2px 12px rgba(0,0,0,.3)}
+:root[data-theme="light"]{--bg:#f5f5f5;--bg2:#fff;--bg3:#f0f0f0;--surface:#fff;--surface2:#f8f8f8;
+--border:#e0e0e0;--text:#1a1a1a;--text2:#666;--text3:#999;
+--blue-bg:#e8f0fe;--green-bg:#e6f7ed;--red-bg:#fde8e8;--yellow-bg:#fff8e1;
+--shadow:0 2px 12px rgba(0,0,0,.1)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
 font-size:14px;color:var(--text);background:var(--bg);line-height:1.6;height:100vh;overflow:hidden}
@@ -205,6 +209,7 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
     <span class="autosave-status" id="autosaveStatus"></span>
     <span class="status-dot" id="statusDot" title="就绪"></span>
     <button class="btn btn-sm" onclick="showBatchGenerate()">📦 批量</button>
+    <button class="btn btn-sm" onclick="toggleTheme()">🌓 主题</button>
     <button class="btn btn-sm" onclick="showSettings()">⚙️ 设置</button>
     <button class="btn btn-primary btn-sm" onclick="showNewArticle()">+ 新文章 <span class="kbd">N</span></button>
   </div>
@@ -305,6 +310,13 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
                 <option value="故事型">故事型（案例 / 共鸣）</option>
                 <option value="测评型">测评型（对比 / 决策）</option>
               </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">📋 文章模板（可选）</label>
+              <select class="form-select" id="templateSelectStep1">
+                <option value="">不使用模板</option>
+              </select>
+              <div class="form-hint">选择模板会自动填充文章类型和大纲结构</div>
             </div>
           </div>
           <div class="form-group">
@@ -447,7 +459,8 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
           </div>
 
           <div class="btn-group">
-            <button class="btn" onclick="generateContent()">🔄 重新生成正文</button>
+            <button class="btn" onclick="generateContent()">🔄 重新生成全文</button>
+            <button class="btn" onclick="showRegenerateSection()">📌 重写单节</button>
             <button class="btn btn-success" onclick="goStep(5)">✅ 满意了，去排版导出 →</button>
           </div>
         </div>
@@ -457,10 +470,11 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
       <div class="step-panel" id="step5" style="display:none">
         <div class="tab-bar">
           <div class="tab active" onclick="switchExportTab('preview', this)">📱 预览</div>
-          <div class="tab" onclick="switchExportTab('html', this)">🔧 HTML 代码</div>
+          <div class="tab" onclick="switchExportTab('html', this)">🔧 HTML</div>
           <div class="tab" onclick="switchExportTab('text', this)">📝 纯文本</div>
-          <div class="tab" onclick="switchExportTab('images', this)">🖼️ 配图建议</div>
+          <div class="tab" onclick="switchExportTab('images', this)">🖼️ 配图</div>
           <div class="tab" onclick="switchExportTab('seo', this)">📊 SEO</div>
+          <div class="tab" onclick="switchExportTab('audit', this)">🔍 审计</div>
         </div>
 
         <!-- 排版风格选择 -->
@@ -500,14 +514,22 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
             <div id="seoResult" style="font-size:13px;color:var(--text2)">点击「分析 SEO」获取优化建议</div>
           </div>
         </div>
+        <div id="exportAudit" style="display:none">
+          <div class="card">
+            <div class="card-title">🔍 文章审计报告</div>
+            <div id="auditResult" style="font-size:13px;color:var(--text2)">点击「开始审计」获取全方位质量报告</div>
+          </div>
+        </div>
 
         <div class="btn-group" style="margin-top:12px">
           <button class="btn btn-primary" onclick="formatAndPreview()">📐 生成排版</button>
           <button class="btn" onclick="copyToClipboard('html')">📋 复制 HTML</button>
           <button class="btn" onclick="copyToClipboard('text')">📋 复制纯文本</button>
+          <button class="btn" onclick="exportWord()">📄 导出 Word</button>
           <button class="btn" onclick="suggestImages()">🖼️ 配图建议</button>
           <button class="btn" onclick="analyzeSeo()">📊 SEO 分析</button>
-          <button class="btn btn-success" onclick="saveArticle()">💾 保存文章 <span class="kbd">Ctrl+S</span></button>
+          <button class="btn" onclick="runAudit()">🔍 全面审计</button>
+          <button class="btn btn-success" onclick="saveArticle()">💾 保存 <span class="kbd">Ctrl+S</span></button>
         </div>
       </div>
     </div>
@@ -1592,6 +1614,230 @@ async function doBatchGenerate() {
   btn.disabled = false; btn.textContent = '🚀 开始批量生成';
   setBusy(false);
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 主题切换
+// ═══════════════════════════════════════════════════════════════════════════
+function toggleTheme() {
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+  const next = current === 'light' ? '' : 'light';
+  if (next) root.setAttribute('data-theme', next);
+  else root.removeAttribute('data-theme');
+  localStorage.setItem('inkflow-theme', next || 'dark');
+  toast(next === 'light' ? '已切换到亮色主题' : '已切换到暗色主题');
+}
+
+// Restore theme on load
+(function() {
+  const saved = localStorage.getItem('inkflow-theme');
+  if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 文章模板
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadArticleTemplates() {
+  try {
+    const resp = await fetch('/api/templates');
+    const templates = await resp.json();
+    const sel = document.getElementById('templateSelectStep1');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">不使用模板</option>' +
+      templates.map(t => `<option value="${t.id}" data-mode="${t.mode}">${t.name} — ${t.desc}</option>`).join('');
+    sel.addEventListener('change', () => {
+      const opt = sel.options[sel.selectedIndex];
+      if (opt.dataset.mode) {
+        document.getElementById('modeSelect').value = opt.dataset.mode;
+      }
+    });
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 单节重新生成
+// ═══════════════════════════════════════════════════════════════════════════
+function showRegenerateSection() {
+  const outline = currentArticle.outline;
+  if (!outline || !outline.sections || !outline.sections.length) {
+    toast('没有大纲信息', 'error'); return;
+  }
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-title">📌 重写单节</div>
+      <div class="form-group">
+        <label class="form-label">选择要重写的小节</label>
+        <select class="form-select" id="regenSectionIdx">
+          ${outline.sections.map((s, i) => `<option value="${i}">${i+1}. ${s.title}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-hint">只重写选中的小节，其他部分保持不变</div>
+      <div class="modal-actions">
+        <button class="btn" onclick="this.closest('.modal-overlay').remove()">取消</button>
+        <button class="btn btn-primary" onclick="doRegenerateSection(); this.closest('.modal-overlay').remove()">🔄 重写</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+async function doRegenerateSection() {
+  const idx = parseInt(document.getElementById('regenSectionIdx').value);
+  const content = document.getElementById('contentEditor').value;
+  if (!content) { toast('没有正文内容', 'error'); return; }
+
+  setBusy(true, `重写第${idx+1}节...`);
+  try {
+    const resp = await fetch('/api/generate/section', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        outline: currentArticle.outline,
+        section_index: idx,
+        content: content,
+        topic: currentArticle.topic,
+        platform: currentArticle.platform,
+        source_text: currentArticle.sourceText || '',
+        style_profile_id: currentArticle.styleProfileId || ''
+      })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.content = data.content;
+      document.getElementById('contentEditor').value = data.content;
+      updateWordIndicator(data.word_count);
+      validateContent(data.content);
+      loadSuggestions();
+      triggerAutoSave();
+      toast(`第${idx+1}节已重写`);
+    }
+  } catch(e) { toast('重写失败: ' + e.message, 'error'); }
+  setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 文章审计
+// ═══════════════════════════════════════════════════════════════════════════
+async function runAudit() {
+  const content = document.getElementById('contentEditor')?.value || currentArticle.content;
+  if (!content) { toast('没有正文内容', 'error'); return; }
+
+  setBusy(true, '全面审计中...');
+  try {
+    const resp = await fetch('/api/audit', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content, topic: currentArticle.topic, platform: currentArticle.platform })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const a = data.audit;
+      const el = document.getElementById('auditResult');
+
+      function scoreColor(s) { return s >= 80 ? 'var(--green)' : s >= 60 ? 'var(--yellow)' : 'var(--red)'; }
+      function scoreBadge(s, label) {
+        return `<span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;background:${scoreColor(s)}22;color:${scoreColor(s)};margin-right:8px">${label} ${s}分</span>`;
+      }
+
+      let dims = '';
+      if (a.dimensions) {
+        const d = a.dimensions;
+        const entries = [
+          ['ai_flavor', '🤖 AI味', d.ai_flavor],
+          ['sensitive_words', '⚠️ 敏感词', d.sensitive_words],
+          ['content_quality', '📝 内容质量', d.content_quality],
+          ['readability', '📱 可读性', d.readability],
+          ['engagement', '🎣 互动性', d.engagement],
+          ['platform_fit', '📱 平台适配', d.platform_fit],
+        ];
+        dims = entries.map(([key, label, dim]) => {
+          if (!dim) return '';
+          const issues = (dim.issues || []).map(i => `<div style="color:var(--red);font-size:12px">• ${i}</div>`).join('');
+          const suggs = (dim.suggestions || []).map(s => `<div style="color:var(--green);font-size:12px">💡 ${s}</div>`).join('');
+          return `<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid ${scoreColor(dim.score)}">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <strong>${label}</strong>
+              <span style="font-weight:600;color:${scoreColor(dim.score)}">${dim.score}分</span>
+            </div>
+            ${issues}${suggs}
+          </div>`;
+        }).join('');
+      }
+
+      const topFixes = (a.top_fixes || []).map(f => `<div style="padding:8px;background:var(--yellow-bg);border-radius:6px;margin-bottom:4px;font-size:13px">🔧 ${f}</div>`).join('');
+      const validator = a.validator || {};
+      const validatorIssues = (validator.issues || []).slice(0, 5).map(i =>
+        `<div style="font-size:12px;color:var(--text3)">[${i.severity}] ${i.description}</div>`
+      ).join('');
+
+      el.innerHTML = `
+        <div style="margin-bottom:16px;text-align:center">
+          <div style="font-size:36px;font-weight:700;color:${scoreColor(a.overall_score)}">${a.overall_score}</div>
+          <div style="font-size:14px;color:var(--text2);margin-top:4px">综合评分 — ${a.overall_verdict || '—'}</div>
+        </div>
+        ${a.highlight ? `<div style="padding:10px;background:var(--green-bg);border-radius:8px;margin-bottom:12px;font-size:13px">✨ ${a.highlight}</div>` : ''}
+        <div style="margin-bottom:12px"><strong>各维度评分：</strong></div>
+        ${dims}
+        ${topFixes ? `<div style="margin-top:12px"><strong>🔧 最重要的修改：</strong>${topFixes}</div>` : ''}
+        ${validatorIssues ? `<div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:8px"><strong style="font-size:12px">验证器检测到的问题：</strong>${validatorIssues}</div>` : ''}
+      `;
+      const auditTab = document.querySelector('.tab[onclick*="audit"]');
+      if (auditTab) switchExportTab('audit', auditTab);
+      toast('审计完成');
+    }
+  } catch(e) { toast('审计失败: ' + e.message, 'error'); }
+  setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 导出 Word
+// ═══════════════════════════════════════════════════════════════════════════
+async function exportWord() {
+  const content = document.getElementById('contentEditor')?.value || currentArticle.content;
+  if (!content) { toast('没有正文内容', 'error'); return; }
+  const outline = currentArticle.outline || {};
+
+  setBusy(true, '导出 Word...');
+  try {
+    const resp = await fetch('/api/export/docx', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content, title: outline.selected_title || currentArticle.topic || 'article' })
+    });
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (outline.selected_title || 'article') + '.docx';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('Word 文档已导出');
+    } else {
+      toast('导出失败', 'error');
+    }
+  } catch(e) { toast('导出失败: ' + e.message, 'error'); }
+  setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// switchExportTab 扩展
+// ═══════════════════════════════════════════════════════════════════════════
+const _origSwitchTab = switchExportTab;
+switchExportTab = function(tab, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('exportPreview').style.display = tab === 'preview' ? 'block' : 'none';
+  document.getElementById('exportHtml').style.display = tab === 'html' ? 'block' : 'none';
+  document.getElementById('exportText').style.display = tab === 'text' ? 'block' : 'none';
+  document.getElementById('exportImages').style.display = tab === 'images' ? 'block' : 'none';
+  document.getElementById('exportSeo').style.display = tab === 'seo' ? 'block' : 'none';
+  document.getElementById('exportAudit').style.display = tab === 'audit' ? 'block' : 'none';
+};
+
+// Load templates on init
+window.addEventListener('load', () => { loadArticleTemplates(); });
+
 </script>
 </body>
 </html>

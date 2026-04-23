@@ -1,4 +1,4 @@
-"""FastAPI 服务 — 公众号/头条文章生成器 v3（+参考链接+排版模板+批量+SEO）"""
+"""FastAPI 服务 — 公众号/头条文章生成器 v4（+审计+单节重写+导出Word+文章模板）"""
 from __future__ import annotations
 import asyncio, json, os, time
 from pathlib import Path
@@ -703,6 +703,150 @@ async def generate_full(req: GenerateReq):
         raise HTTPException(500, f"生成失败：{e}")
     finally:
         _generation_active.update({"active": False, "task": ""})
+
+
+
+# ── 单节重新生成 ──────────────────────────────────────────────────────────────
+
+class RegenerateSectionReq(BaseModel):
+    outline: dict
+    section_index: int
+    content: str
+    topic: str = ""
+    platform: str = "wechat"
+    source_text: str = ""
+    style_profile_id: str = ""
+
+
+@app.post("/api/generate/section")
+async def regenerate_section(req: RegenerateSectionReq):
+    if _generation_active["active"]:
+        raise HTTPException(429, "另一个生成任务正在进行中，请等待完成")
+
+    from pipeline import Outline
+    outline = Outline(
+        title_candidates=req.outline.get("title_candidates", []),
+        selected_title=req.outline.get("selected_title", ""),
+        hook=req.outline.get("hook", ""),
+        sections=req.outline.get("sections", []),
+        cta=req.outline.get("cta", ""),
+        tags=req.outline.get("tags", []),
+    )
+
+    style = None
+    if req.style_profile_id:
+        try:
+            style = Pipeline.load_style(req.style_profile_id)
+        except FileNotFoundError:
+            pass
+
+    material = None
+    if req.source_text.strip():
+        try:
+            material = await asyncio.to_thread(
+                _pipeline(0.3).extract_material, req.source_text, req.topic,
+            )
+        except Exception:
+            pass
+
+    _generation_active.update({"active": True, "started_at": time.time(), "task": "单节重写"})
+    try:
+        content = await asyncio.to_thread(
+            _pipeline(0.8).regenerate_section,
+            req.topic, outline, req.section_index, req.content,
+            req.platform, style, material,
+        )
+        return {"ok": True, "content": content, "word_count": len(content)}
+    except Exception as e:
+        raise HTTPException(500, f"单节重写失败：{e}")
+    finally:
+        _generation_active.update({"active": False, "task": ""})
+
+
+# ── 文章综合审计 ──────────────────────────────────────────────────────────────
+
+class AuditReq(BaseModel):
+    content: str
+    topic: str = ""
+    platform: str = "wechat"
+
+
+@app.post("/api/audit")
+async def audit_article(req: AuditReq):
+    try:
+        result = await asyncio.to_thread(
+            _pipeline(0.3).audit_article, req.content, req.topic, req.platform,
+        )
+        return {"ok": True, "audit": result}
+    except Exception as e:
+        raise HTTPException(500, f"审计失败：{e}")
+
+
+# ── 导出 Word ─────────────────────────────────────────────────────────────────
+
+class ExportDocxReq(BaseModel):
+    content: str
+    title: str = ""
+
+
+@app.post("/api/export/docx")
+async def export_docx(req: ExportDocxReq):
+    from docx import Document
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import io, re
+
+    doc = Document()
+    style = doc.styles['Normal']
+    font = style.font
+    font.size = Pt(11)
+
+    if req.title:
+        heading = doc.add_heading(req.title, level=1)
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    lines = req.content.split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('## ') or (line.startswith('**') and line.endswith('**')):
+            title_text = line.lstrip('#').strip().strip('*').strip()
+            doc.add_heading(title_text, level=2)
+        elif line.startswith('# '):
+            doc.add_heading(line.lstrip('#').strip(), level=1)
+        else:
+            para = doc.add_paragraph()
+            parts = re.split(r'\*\*(.+?)\*\*', line)
+            for i, part in enumerate(parts):
+                if not part:
+                    continue
+                run = para.add_run(part)
+                if i % 2 == 1:
+                    run.bold = True
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    from fastapi.responses import StreamingResponse
+    import urllib.parse
+    filename = f"{req.title or 'article'}.docx"
+    encoded = urllib.parse.quote(filename)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"}
+    )
+
+
+# ── 文章模板列表 ──────────────────────────────────────────────────────────────
+
+@app.get("/api/templates")
+def list_article_templates():
+    from pipeline import ARTICLE_TEMPLATES
+    return [{"id": k, "name": v["name"], "desc": v["desc"], "mode": v["mode"]}
+            for k, v in ARTICLE_TEMPLATES.items()]
 
 
 # ── 保存/更新文章 ─────────────────────────────────────────────────────────────

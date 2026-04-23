@@ -868,6 +868,7 @@ def save_article(req: SaveArticleReq):
     from datetime import datetime, timezone
 
     article_id = req.id or f"art_{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc)
     data = {
         "id": article_id,
         "topic": req.topic,
@@ -878,15 +879,84 @@ def save_article(req: SaveArticleReq):
         "content": req.content,
         "html": req.html,
         "word_count": len(req.content),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now.isoformat(),
         "revision_history": req.revision_history,
     }
 
     art_dir = BASE_DIR / "data" / "articles"
     art_dir.mkdir(parents=True, exist_ok=True)
     path = art_dir / f"{article_id}.json"
+
+    # 自动版本管理：保存前先存旧版本
+    if path.exists() and req.content:
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+            if old.get("content") and old["content"] != req.content:
+                ver_dir = art_dir / article_id / "versions"
+                ver_dir.mkdir(parents=True, exist_ok=True)
+                ver_path = ver_dir / f"{now.strftime('%Y%m%d_%H%M%S')}.json"
+                ver_data = {
+                    "content": old["content"],
+                    "word_count": old.get("word_count", 0),
+                    "timestamp": now.isoformat(),
+                    "snapshot": old.get("content", "")[:200],
+                }
+                ver_path.write_text(json.dumps(ver_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "id": article_id}
+
+
+# ── 文章版本历史 ──────────────────────────────────────────────────────────────
+
+@app.get("/api/articles/{article_id}/versions")
+def list_versions(article_id: str):
+    ver_dir = BASE_DIR / "data" / "articles" / article_id / "versions"
+    if not ver_dir.exists():
+        return []
+    versions = []
+    for f in sorted(ver_dir.glob("*.json"), reverse=True):
+        data = json.loads(f.read_text(encoding="utf-8"))
+        versions.append({
+            "file": f.name,
+            "word_count": data.get("word_count", 0),
+            "timestamp": data.get("timestamp", ""),
+            "preview": data.get("snapshot", ""),
+        })
+    return versions
+
+
+@app.get("/api/articles/{article_id}/versions/{filename}")
+def get_version(article_id: str, filename: str):
+    ver_path = BASE_DIR / "data" / "articles" / article_id / "versions" / filename
+    if not ver_path.exists():
+        raise HTTPException(404, "版本不存在")
+    return json.loads(ver_path.read_text(encoding="utf-8"))
+
+
+# ── 复制文章 ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/articles/{article_id}/copy")
+def copy_article(article_id: str):
+    import uuid
+    from datetime import datetime, timezone
+
+    src_path = BASE_DIR / "data" / "articles" / f"{article_id}.json"
+    if not src_path.exists():
+        raise HTTPException(404, "文章不存在")
+
+    src = json.loads(src_path.read_text(encoding="utf-8"))
+    new_id = f"art_{uuid.uuid4().hex[:8]}"
+    src["id"] = new_id
+    src["topic"] = src.get("topic", "") + "（副本）"
+    src["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    art_dir = BASE_DIR / "data" / "articles"
+    dst_path = art_dir / f"{new_id}.json"
+    dst_path.write_text(json.dumps(src, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "id": new_id}
 
 
 if __name__ == "__main__":

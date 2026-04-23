@@ -767,28 +767,39 @@ class Pipeline:
     # ─────────────────────────────────────────────────────────────────────────
 
     def suggest_images(self, content: str, outline: Outline) -> list[dict]:
-        """在文章合适位置建议配图"""
+        """在文章合适位置建议配图，附带 AI 绘图 prompt"""
         sections = outline.sections
-        suggestions = []
+        topic = outline.selected_title or ""
 
-        # 开头建议一张封面/情感图
-        suggestions.append({
-            "position": "开头",
-            "after_text": content[:100] + "...",
-            "suggestion": "封面图/情感场景图",
-            "description": f"与「{outline.selected_title}」主题相关的高质量封面图"
-        })
+        prompt = f"""为以下公众号文章生成配图建议，每个位置给出 Midjourney 风格的绘图 prompt。
 
-        # 每个小节建议一张
-        for i, sec in enumerate(sections):
-            suggestions.append({
-                "position": f"「{sec.get('title', '')}」段落后",
-                "after_text": sec.get('title', ''),
-                "suggestion": f"第{i+1}节配图",
-                "description": f"与「{sec.get('title', '')}」内容相关的配图，建议使用数据图表、案例截图或场景插图"
-            })
+## 文章标题
+{topic}
 
-        return suggestions
+## 文章结构
+开头 → {' → '.join(s.get('title', '') for s in sections)} → 结尾
+
+请输出 JSON 数组：
+[
+  {{
+    "position": "位置描述",
+    "suggestion": "配图类型",
+    "description": "中文描述",
+    "ai_prompt": "Midjourney style English prompt, cinematic, high quality, --ar 16:9"
+  }}
+]
+
+要求：
+1. 开头一张封面图，每个小节一张配图
+2. ai_prompt 用英文，包含风格、构图、色调描述
+3. 图片风格统一，适合公众号阅读场景"""
+
+        resp = with_retry(lambda: self.llm.complete([
+            Message("system", "你是配图策划师，擅长为新媒体文章设计视觉方案。只输出合法 JSON 数组。"),
+            Message("user", prompt),
+        ], temperature=0.7))
+
+        return parse_json_list(resp.content)
 
     # ─────────────────────────────────────────────────────────────────────────
     # 新功能：批量生成

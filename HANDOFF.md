@@ -1,101 +1,142 @@
-# 📋 项目交接文档
+# HANDOFF.md — 项目交接文档
 
-> 本文档用于新对话/新开发者快速理解项目上下文，继续开发或维护。
+本文档用于新对话/新开发者快速理解项目上下文，继续开发或维护。
 
----
+## 项目概述
 
-## 一句话定位
+InkFlow = 公众号/头条文章的 AI 写作工作台，核心理念是「人机共创」而非「一键出稿」。
 
-**InkFlow** = 公众号/头条文章的 AI 写作工作台，核心理念是「人机共创」而非「一键出稿」。
+### 起源
 
----
-
-## 项目背景
-
-### 为什么做这个？
 原项目 [dramatica-flow](https://github.com/ydsgangge-ux/dramatica-flow) 是一个 AI 长篇小说创作系统，基于 Dramatica 叙事理论，有 5 层写作管线、因果链、伏笔系统、情感弧线等复杂机制。
 
 用户希望将其改造为公众号/头条文章写作工具。经过讨论，确定了核心原则：
-- **不要拿着锤子找钉子** — 小说系统的复杂状态机（因果链、伏笔追踪）对 2000 字的单篇文章是过度工程
-- **LLM 单次上下文够用** — 不需要外部状态机追踪逻辑
-- **新媒体写作的灵魂是信息源** — 需要素材输入/RAG，不是无中生写
-- **人机共创** — AI 发散，人做决策
 
-### 从原项目复用了什么？
-- LLM 抽象层设计思路（OpenAI SDK 兼容，重试机制）
-- FastAPI 后端框架骨架
-- JSON 解析容错（`_repair` 截断修复）
-- 写后验证器框架（规则引擎，但规则全部替换）
-- 前端 UI 组件样式（按钮、卡片、布局配色）
+- 不要拿着锤子找钉子 — 小说系统的复杂状态机对 2000 字的单篇文章是过度工程
+- LLM 单次上下文够用 — 不需要外部状态机追踪逻辑
+- 新媒体写作的灵魂是信息源 — 需要素材输入/RAG，不是无中生写
+- 人机共创 — AI 发散，人做决策
 
-### 砍掉了什么？
-- 多线叙事系统（NarrativeThread, TimelineEvent）
-- 伏笔生命周期管理（Hook 系统）
-- 信息边界系统（KnownInfoRecord）
-- 关系网络（RelationshipRecord）
-- 因果链追踪（CausalLink）
-- 情感弧线追踪（EmotionalSnapshot）
-- 世界观配置（characters/world/events JSON）
-- 大纲→章纲→细纲的三层结构
-- 状态快照/回滚
-
----
-
-## 技术架构
+## 架构
 
 ```
 用户浏览器
-  ↓ HTTP
+ ↓ HTTP
 FastAPI (app.py, port 8765)
-  ↓ 调用
+ ↓ 调用
 Pipeline (pipeline.py)
-  ├── extract_material()   → LLM 提取素材要点
-  ├── generate_outline()   → LLM 生成大纲 + 标题
-  ├── generate_titles()    → LLM 单独生成标题
-  ├── generate_content()   → LLM 分块写正文
-  ├── format_html()        → LLM 生成排版 HTML
-  ├── extract_style()      → LLM 分析写作风格
-  └── run_full()           → 一键走完全部流程
-  ↓ 调用
+ ├── extract_material()       → LLM 提取素材要点
+ ├── extract_material_from_urls() → 抓取参考链接 + 提取素材
+ ├── generate_outline()       → LLM 生成大纲 + 标题
+ ├── generate_titles()        → LLM 单独生成标题
+ ├── generate_content()       → LLM 分块写正文
+ ├── generate_content_stream() → LLM 流式分块写正文（SSE）
+ ├── regenerate_section()     → LLM 重写单个小节
+ ├── revise_content()         → LLM 多轮修订
+ ├── suggest_images()         → LLM 配图建议 + AI 绘图 prompt
+ ├── format_html()            → LLM 生成排版 HTML（3 种模板）
+ ├── audit_article()          → LLM 六维度审计
+ ├── optimize_seo()           → LLM SEO 优化建议
+ ├── extract_style()          → LLM 分析写作风格
+ ├── generate_batch()         → 批量生成大纲
+ └── run_full()               → 一键走完全部流程
+ ↓ 调用
 LLM (llm.py)
-  └── DeepSeek / Ollama / 任意 OpenAI 兼容 API
-  ↓ 返回后
+ └── DeepSeek / Ollama / 任意 OpenAI 兼容 API
+ ↓ 返回后
 Validator (validator.py)
-  └── 11 项规则检测
+ └── 13 项规则检测
 ```
 
-### 数据存储
-- **纯文件驱动**，无数据库
+## 数据模型
+
+### 存储
+
+- 纯文件驱动，无数据库
 - `data/articles/{id}.json` — 每篇文章的完整数据
+- `data/articles/{id}/versions/*.json` — 版本历史
 - `data/styles/{id}.json` — 风格克隆 profile
 - `.env` — API 配置
 
-### 前端
-- **单文件 SPA** (`index.html`)，约 1200 行
-- 暗色主题，无构建工具，无框架依赖
+### 核心数据结构
+
+```python
+@dataclass
+class Article:
+    id: str
+    topic: str
+    platform: str          # wechat | toutiao
+    mode: str              # 干货型 | 争议型 | 故事型 | 测评型
+    status: str            # draft | outlined | writing | done
+    outline: Outline
+    content: str
+    html: str
+    style_profile_id: str
+    source_text: str
+    validation: ValidationResult
+    created_at: str
+    word_count: int
+    revision_history: list
+
+@dataclass
+class Outline:
+    title_candidates: list[str]
+    selected_title: str
+    hook: str              # 开头钩子
+    sections: list[dict]   # [{title, key_points, word_budget, writing_guide}]
+    cta: str               # 结尾行动号召
+    tags: list[str]
+
+@dataclass
+class StyleProfile:
+    id: str
+    name: str
+    sentence_patterns: list[str]
+    vocabulary: list[str]
+    punctuation_habits: str
+    tone: str
+    structure_style: str
+    sample_summary: str
+```
+
+## 前端
+
+- 单文件 SPA (index.html)，约 1600 行
+- 暗/亮双主题，localStorage 持久化
+- 无构建工具，无框架依赖
 - 5 步流程条：选题 → 素材 → 大纲 → 正文 → 导出
-- 关键交互点：
-  - 标题候选点击选择
-  - 大纲小节可编辑（弹窗）
-  - 正文 textarea 可直接修改
-  - 导出支持预览/HTML/纯文本
+- 导出页 6 个 tab：预览 / HTML / 纯文本 / 配图 / SEO / 审计
 
----
+### 关键交互
 
-## 关键设计决策
+- 标题候选点击选择
+- 大纲小节可编辑（弹窗）+ 拖拽排序
+- 正文 textarea 可直接编辑
+- 单节重新生成
+- 多轮修订（全局/局部）+ 修订历史 + 撤销
+- 侧边栏标签筛选 + 复制/删除
+- 写作统计面板
+- 快捷键：Ctrl+S / Ctrl+Enter / N / Esc
 
-### 1. 为什么分块生成？
+## 核心设计决策
+
+### 分块生成
+
 一次性生成 3000 字，后半段质量会下降（LLM 的注意力衰减）。分块策略：
+
 - 开头（150-300字）→ 各小节（按 word_budget）→ 结尾 + CTA（100-200字）
-- 每块 Prompt 带入上一块最后 200 字（`prev_tail`），确保衔接
+- 每块 Prompt 带入上一块最后 200 字（prev_tail），确保衔接
+- 支持 SSE 流式输出，前端实时显示进度
 
-### 2. 风格克隆怎么做？
-1. 用户上传 3-5 篇 .txt/.md 样本文章
-2. 调用 LLM 分析：句式特征、惯用词汇、标点习惯、语调、结构风格
-3. 保存为 `style_profile.json`
-4. 后续生成时，将 profile 注入 Prompt 的「写作风格要求」section
+### 风格克隆
 
-### 3. 验证器规则
+- 用户上传 3-5 篇 .txt/.md 样本文章
+- 调用 LLM 分析：句式特征、惯用词汇、标点习惯、语调、结构风格
+- 保存为 style_profile.json
+- 后续生成时，将 profile 注入 Prompt 的「写作风格要求」section
+
+### 写后验证（13 项规则）
+
 | 规则 | 级别 | 说明 |
 |------|------|------|
 | AI_MARKER | warning | "仿佛/忽然/竟然"等词，每3000字上限1次 |
@@ -103,114 +144,177 @@ Validator (validator.py)
 | META | warning | "核心动机/叙事节奏"等元叙事 |
 | REPORT | warning | "分析了形势/综合考虑"等报告式语言 |
 | COLLECTIVE | warning | "众人哗然/所有人齐声"等集体套话 |
-| SENSITIVE | warning | 广告法违禁词/平台敏感词 |
+| SENSITIVE | warning | 广告法违禁词/平台敏感词（70+ 词） |
 | LENGTH | warning | 字数不符合平台建议 |
 | LONG_PARA | warning | 段落超300字影响手机阅读 |
 | CONSECUTIVE_LE | warning | 连续6句含"了"字 |
+| AI_FILLER | warning | AI 套话/连接词过多（≥3处） |
+| REPETITIVE | warning | 重复表达出现≥2次 |
+| EXCLAMATION | warning | 感叹号过多（>5个） |
+| MONOTONE | warning | 段落长度过于单调 |
 
----
+### 文章审计（六维度）
 
-## 开发进度
+LLM 当「资深内容审计师」，从 6 个维度打分：
 
-### ✅ 已完成（2026-04-23）
-- **多轮修订** — 人机共创核心能力
-  - `Pipeline.revise_content()` — 全局/局部修订（指定小节只改那一段）
-  - `POST /api/revise` — 执行修订
-  - `POST /api/revise/suggest` — 根据验证结果智能推荐修改方向
-  - 前端 Step 4 修订面板：快捷建议按钮、自定义意见、小节选择、修订历史+撤销
-  - 修订历史持久化（保存/加载文章时一并存储）
-- **JSON 解析修复** — DeepSeek 弯引号（`""`）导致 `json.loads` 崩溃
-  - `llm.py` 新增 `_fix_smart_quotes()` 状态机，按字符串边界精准替换
+1. **AI 味** — 有没有明显的 AI 写作痕迹
+2. **敏感词** — 广告法/平台违禁词风险等级
+3. **内容质量** — 信息增量、逻辑流、论据强度
+4. **可读性** — 段落均衡、句式变化、手机友好
+5. **互动性** — 开头钩子强度、CTA 效果、转发欲
+6. **平台适配** — 字数是否达标、语调是否匹配
 
-### 🔜 下一步计划（按优先级）
+最后合并验证器结果，给出综合评分 + 最重要的 3 个修改建议。
 
-#### P0：手动参考链接抓取（信息源）
-> 新媒体写作的灵魂是信息源。当前 AI 凭空编，写出来没有信息增量。
+**验证 vs 审计的区别**：验证是规则引擎（机械检查），审计是 LLM 评估（主观判断）。验证 90 分不代表写得好，只是没触发规则；审计 65 分说明内容质量需要提升。两者互补。
 
-**方案（最简版）：**
-- 前端增加「参考链接」输入框（支持粘贴 1-3 个 URL）
-- 后端新增 `POST /api/fetch-references` 端点
-  - 用 `httpx` 抓取网页 → 提取正文（`readability` 或 `trafilatura`）
-  - 调用 LLM 从抓取内容中提取核心事实、数据、金句
-  - 返回结构化的参考素材，注入后续大纲/正文生成的 prompt
-- 比全自动 RAG 简单得多，但已经能让文章有信息增量
+### JSON 解析容错
 
-**关键文件：** `app.py`（新端点）、`pipeline.py`（新方法）、`index.html`（Step 2 素材区改造）
+DeepSeek 等模型输出 JSON 时常见问题：
+- 包裹在 ```json ``` 中
+- 弯引号（""）替代直引号
+- JSON 被截断（不完整）
 
-#### P1：排版模板（交付质量）
-> 公众号读者在手机上看，排版直接影响完读率。当前只有暗色预览，实际发公众号需要亮色清爽样式。
+解决方案（llm.py）：
+- `_repair()` — 修复被截断的 JSON（补全括号）
+- `_fix_smart_quotes()` — 状态机按字符串边界精准替换弯引号
+- `with_retry()` — 失败自动重试 3 次
 
-**方案：**
-- 新增 `templates/` 目录，存放不同排版风格的 HTML/CSS 模板
-- 至少 3 种风格：简约白、活泼彩、商务灰
-- `pipeline.py` 的 `format_html()` 改为接收模板参数
-- 前端导出步骤增加「排版风格」选择器
-- 模板用内联 CSS（公众号编辑器不支持外部样式表）
+### 排版模板系统
 
-**关键文件：** `templates/`（新目录）、`pipeline.py`（`format_html` 改造）、`app.py`（模板列表端点）、`index.html`（Step 5 模板选择）
+3 种内联 CSS 模板（公众号不支持外部样式表）：
+- **minimal（简约白）**— 干净清爽，适合干货/知识类
+- **vibrant（活泼彩）**— 色彩丰富，适合情感/故事类
+- **business（商务灰）**— 专业稳重，适合商业/测评类
 
----
+### 文章结构模板
 
-## 已知问题 & 待优化
+5 种预设大纲结构：
+- **listicle（清单体）**— N 个方法/技巧/建议
+- **comparison（对比测评）**— A vs B
+- **story（情感故事）**— 真实案例切入
+- **hot_take（争议观点）**— 反常识，引发讨论
+- **tutorial（教程指南）**— 手把手教
 
-### 已知问题
-1. **标题候选前缀混入** — AI 有时输出"标题方案1（爆款型）：xxx"，Pipeline 已加清理逻辑但可能不完美
-2. **风格提取样本格式** — 目前只支持 .txt/.md，不支持 .docx/.pdf
-3. **无持久化用户系统** — 所有数据本地文件存储，无登录/多用户
+## API 端点一览
 
-### 其他待做方向
-- **敏感词库扩充** — 当前只有基础库，可接入平台官方违禁词列表
-- **图片建议** — 在合适位置建议配图，甚至生成配图描述
-- **批量生成** — 输入多个主题，批量出稿
-- **SEO 优化** — 针对头条的搜索推荐算法优化关键词密度
-- **查重预警** — 检测生成内容是否与网上已有文章过于相似
+### 文章管理
+- `GET /api/articles` — 文章列表
+- `GET /api/articles/{id}` — 文章详情
+- `POST /api/articles/save` — 保存文章（自动版本管理）
+- `DELETE /api/articles/{id}` — 删除文章
+- `POST /api/articles/{id}/copy` — 复制文章
+- `GET /api/articles/{id}/versions` — 版本历史
+- `GET /api/articles/{id}/versions/{file}` — 版本详情
+- `GET /api/articles/tag/{tag}` — 按标签筛选
 
----
+### 标签 & 统计
+- `GET /api/tags` — 标签列表
+- `GET /api/stats` — 写作统计
 
-## 快速上手（给接班人）
+### 生成
+- `POST /api/generate/outline` — 生成大纲
+- `POST /api/generate/titles` — 生成标题
+- `POST /api/generate/content` — 生成正文（普通）
+- `POST /api/generate/content/stream` — 生成正文（SSE 流式）
+- `POST /api/generate/section` — 单节重新生成
+- `POST /api/generate/batch` — 批量生成大纲
+- `POST /api/generate/full` — 一键完整生成
 
-```bash
-# 1. 克隆
-git clone https://github.com/ZTNIAN/inkflow.git
-cd inkflow
+### 素材 & 风格
+- `POST /api/extract-material` — 提取素材要点
+- `POST /api/fetch-references` — 抓取参考链接
+- `GET /api/styles` — 风格列表
+- `POST /api/styles/extract` — 提取写作风格
 
-# 2. 安装依赖
-pip install -r requirements.txt
+### 修订 & 审计
+- `POST /api/revise` — 多轮修订
+- `POST /api/revise/suggest` — 修订建议
+- `POST /api/validate` — 写后验证
+- `POST /api/audit` — 文章综合审计
 
-# 3. 配置
-cp .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY
+### 导出
+- `POST /api/format` — 排版生成 HTML
+- `GET /api/format/templates` — 排版模板列表
+- `GET /api/templates` — 文章模板列表
+- `POST /api/export/docx` — 导出 Word
+- `POST /api/suggest-images` — 配图建议
+- `POST /api/seo` — SEO 优化建议
 
-# 4. 启动
-python3 app.py
+### 系统
+- `GET /api/health` — 健康检查
+- `GET /api/settings` — 获取配置
+- `POST /api/settings` — 保存配置
 
-# 5. 打开浏览器
-# http://localhost:8765
+## 开发指南
+
+### 想改什么 → 看哪个文件
+
+| 目标 | 文件 | 关键函数/类 |
+|------|------|------------|
+| API 端点 | app.py | `@app.post("/api/...")` |
+| 管线流程 | pipeline.py | `Pipeline.run_full()` |
+| 大纲生成 | pipeline.py | `Pipeline.generate_outline()` |
+| 正文生成 | pipeline.py | `Pipeline.generate_content()` |
+| 单节重写 | pipeline.py | `Pipeline.regenerate_section()` |
+| 多轮修订 | pipeline.py | `Pipeline.revise_content()` |
+| 文章审计 | pipeline.py | `Pipeline.audit_article()` |
+| 配图建议 | pipeline.py | `Pipeline.suggest_images()` |
+| 批量生成 | pipeline.py | `Pipeline.generate_batch()` |
+| LLM 调用 | llm.py | `LLM.complete()` / `LLM.stream()` |
+| JSON 解析 | llm.py | `parse_json()` / `_fix_smart_quotes()` |
+| 验证规则 | validator.py | `Validator.validate()` |
+| 敏感词库 | validator.py | `SENSITIVE_WORDS` |
+| 排版模板 | pipeline.py | `FORMAT_TEMPLATES` |
+| 文章模板 | pipeline.py | `ARTICLE_TEMPLATES` |
+| 前端界面 | index.html | `<script>` 部分的 JS 函数 |
+| 前端修订 | index.html | `doRevise()` / `quickRevise()` |
+| 前端审计 | index.html | `runAudit()` |
+| 前端统计 | index.html | `showStats()` |
+| 配置 | .env | `DEEPSEEK_*` 变量 |
+
+## 已知问题
+
+- **JSON 解析偶发失败** — DeepSeek 输出带书名号《》或特殊引号时可能解析失败，with_retry 会自动重试
+- **风格提取只支持 .txt/.md** — 不支持 .docx/.pdf
+- **无持久化用户系统** — 所有数据本地文件存储，无登录/多用户
+- **敏感词库需持续扩充** — 当前 70+ 词，可接入平台官方违禁词列表
+
+## 依赖
+
+```
+fastapi>=0.100.0
+uvicorn>=0.23.0
+openai>=1.0.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+python-docx>=1.0.0
+readability-lxml>=0.8.0
+lxml>=4.0.0
+html2text>=2024.0.0
 ```
 
+## 启动
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+# 编辑 .env，填入 DEEPSEEK_API_KEY
+python3 app.py
+# 打开 http://localhost:8765
+```
+
+## 版本历史
+
+- **v1.0** — 初始版本：5 步流程 + 大纲 + 正文 + 验证 + 排版
+- **v2.0** — SSE 流式输出 + 并发保护 + 自动保存 + 快捷键 + 字数指示器 + 增强验证器（13 项）
+- **v3.0** — 参考链接抓取 + 排版模板（3 种）+ 配图建议 + 批量生成 + SEO 优化
+- **v4.0** — 文章审计（六维度）+ 单节重写 + 导出 Word + 敏感词库扩充（70+）+ 文章模板（5 种）+ 暗/亮主题
+- **v5.0** — 大纲拖拽排序 + 复制文章 + 版本管理 + AI 绘图 prompt + 删除确认
+- **v6.0** — 写作统计面板 + 标签管理 + 按标签筛选
+
 ---
 
-## 代码入口速查
-
-| 想改什么 | 看哪个文件 | 关键函数/类 |
-|----------|-----------|-------------|
-| API 端点 | `app.py` | `@app.post("/api/...")` |
-| 管线流程 | `pipeline.py` | `Pipeline.run_full()` |
-| 大纲生成逻辑 | `pipeline.py` | `Pipeline.generate_outline()` |
-| 正文生成逻辑 | `pipeline.py` | `Pipeline.generate_content()` |
-| **多轮修订** | `pipeline.py` | `Pipeline.revise_content()` |
-| **修订建议** | `app.py` | `POST /api/revise/suggest` |
-| LLM 调用 | `llm.py` | `LLM.complete()` |
-| **JSON 解析/弯引号修复** | `llm.py` | `parse_json()` / `_fix_smart_quotes()` |
-| 验证规则 | `validator.py` | `Validator.validate()` |
-| 前端界面 | `index.html` | `<script>` 部分的 JS 函数 |
-| **前端修订面板** | `index.html` | `doRevise()` / `quickRevise()` / `loadSuggestions()` |
-| 配置 | `.env` | `DEEPSEEK_*` 变量 |
-
----
-
-## 联系 & 背景
-
-- 基于 [dramatica-flow](https://github.com/ydsgangge-ux/dramatica-flow) 改造
-- 使用 DeepSeek API 作为默认 LLM 后端
-- 项目创建时间：2026-04-23
+基于 [dramatica-flow](https://github.com/ydsgangge-ux/dramatica-flow) 改造。
+使用 DeepSeek API 作为默认 LLM 后端。
+项目创建时间：2026-04-23

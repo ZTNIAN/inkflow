@@ -123,6 +123,25 @@ font-size:12px;border-left:3px solid var(--border)}
 .issue-item.error{border-color:var(--red)}
 .issue-item.warning{border-color:var(--yellow)}
 
+/* ── 修订 ── */
+.suggest-btn{padding:6px 14px;background:var(--bg);border:1px solid var(--border);border-radius:20px;
+font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:4px}
+.suggest-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-bg)}
+.suggest-btn.loading{opacity:.5;cursor:wait}
+.revision-item{padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;
+margin-bottom:8px;font-size:12px}
+.revision-item .rev-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.revision-item .rev-instruction{color:var(--blue);font-weight:500}
+.revision-item .rev-meta{color:var(--text3);font-size:11px}
+.revision-item .rev-diff{color:var(--text2);font-size:12px;line-height:1.6;max-height:80px;
+overflow:hidden;position:relative}
+.revision-item .rev-diff::after{content:'';position:absolute;bottom:0;left:0;right:0;height:20px;
+background:linear-gradient(transparent,var(--bg))}
+.revision-item .rev-actions{display:flex;gap:6px;margin-top:6px}
+.rev-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:500}
+.rev-tag.global{background:var(--blue-bg);color:var(--blue)}
+.rev-tag.section{background:var(--purple);color:#fff;opacity:.8}
+
 /* ── 加载 ── */
 .loading{display:flex;align-items:center;gap:10px;color:var(--text2);padding:20px}
 .spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--blue);
@@ -350,25 +369,61 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
         </div>
       </div>
 
-      <!-- Step 4: 正文 -->
+      <!-- Step 4: 正文 + 多轮修订 -->
       <div class="step-panel" id="step4" style="display:none">
         <div id="contentLoading" style="display:none">
           <div class="loading"><div class="spinner"></div><span id="contentProgress">正在生成正文...</span></div>
         </div>
         <div id="contentResult" style="display:none">
+          <!-- 正文编辑区 -->
           <div class="card">
-            <div class="card-title">✍️ 正文内容（可编辑）</div>
-            <textarea class="form-textarea" id="contentEditor" rows="25"
-              style="min-height:400px;font-size:14px;line-height:1.8"></textarea>
+            <div class="card-title">✍️ 正文内容（可直接编辑）</div>
+            <textarea class="form-textarea" id="contentEditor" rows="20"
+              style="min-height:350px;font-size:14px;line-height:1.8"></textarea>
             <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
               <span class="form-hint" id="wordCount"></span>
               <button class="btn btn-sm" onclick="revalidate()">🔍 重新验证</button>
             </div>
           </div>
+
+          <!-- 验证结果 -->
           <div id="validationResult"></div>
+
+          <!-- 修订面板 -->
+          <div class="card" id="revisePanel">
+            <div class="card-title">🔄 AI 修订（人机共创）</div>
+
+            <!-- 智能建议 -->
+            <div id="suggestArea" style="margin-bottom:14px">
+              <div class="form-label">💡 点击快速修订</div>
+              <div id="suggestButtons" class="btn-group" style="gap:6px"></div>
+            </div>
+
+            <!-- 自定义修订 -->
+            <div class="form-group">
+              <label class="form-label">✏️ 自定义修改意见</label>
+              <div style="display:flex;gap:8px;align-items:flex-start">
+                <select class="form-select" id="reviseSection" style="width:180px;flex-shrink:0">
+                  <option value="">全文修订</option>
+                </select>
+                <textarea class="form-textarea" id="reviseInput" rows="2"
+                  style="min-height:42px;flex:1" placeholder="例：第二段太干了，加一个真实案例；结尾换个角度..."></textarea>
+                <button class="btn btn-primary" onclick="doRevise()" id="reviseBtn"
+                  style="flex-shrink:0;align-self:flex-end">🔄 修订</button>
+              </div>
+            </div>
+
+            <!-- 修订历史 -->
+            <div id="revisionHistory" style="display:none">
+              <div class="form-label" style="margin-top:12px">📜 修订记录</div>
+              <div id="revisionList"></div>
+            </div>
+          </div>
+
+          <!-- 底部操作 -->
           <div class="btn-group">
             <button class="btn" onclick="generateContent()">🔄 重新生成正文</button>
-            <button class="btn btn-primary" onclick="goStep(5)">下一步：排版导出 →</button>
+            <button class="btn btn-success" onclick="goStep(5)">✅ 满意了，去排版导出 →</button>
           </div>
         </div>
       </div>
@@ -480,6 +535,9 @@ async function loadArticle(id) {
       outline: data.outline, content: data.content, html: data.html,
       validation: data.validation
     };
+    // 恢复修订历史
+    revisionHistory = data.revision_history || [];
+    renderRevisionHistory();
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('articleView').style.display = 'block';
     // 跳到正文或导出步骤
@@ -487,6 +545,8 @@ async function loadArticle(id) {
       document.getElementById('contentEditor').value = data.content;
       document.getElementById('wordCount').textContent = `${data.content.length} 字`;
       if (data.validation) showValidation(data.validation);
+      // 加载修订建议
+      setTimeout(() => loadSuggestions(), 300);
       if (data.html) {
         document.getElementById('previewBox').innerHTML = data.html;
         document.getElementById('htmlOutput').value = data.html;
@@ -850,8 +910,13 @@ async function generateContent() {
       currentArticle.content = data.content;
       document.getElementById('contentEditor').value = data.content;
       document.getElementById('wordCount').textContent = `${data.word_count} 字`;
+      // 重置修订历史
+      revisionHistory = [];
+      renderRevisionHistory();
       // 自动验证
       validateContent(data.content);
+      // 加载修订建议
+      loadSuggestions();
     } else { toast('正文生成失败', 'error'); }
   } catch(e) { toast('生成失败: ' + e.message, 'error'); }
 
@@ -884,6 +949,156 @@ function showValidation(data) {
     `<div class="issue-item ${i.severity}">[${i.severity}] ${i.description}</div>`
   ).join('');
   el.innerHTML = `<div class="card">${badge}${issues}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 4.5: 多轮修订
+// ═══════════════════════════════════════════════════════════════════════════
+let revisionHistory = [];  // [{instruction, section_title, before, after, timestamp}]
+
+async function loadSuggestions() {
+  const content = document.getElementById('contentEditor').value;
+  if (!content) return;
+  try {
+    const resp = await fetch('/api/revise/suggest', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        content: content,
+        platform: currentArticle.platform,
+        outline: currentArticle.outline || {}
+      })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      renderSuggestions(data.suggestions, data.sections);
+    }
+  } catch(e) { console.error('建议加载失败', e); }
+}
+
+function renderSuggestions(suggestions, sections) {
+  // 快捷建议按钮
+  const btns = document.getElementById('suggestButtons');
+  btns.innerHTML = suggestions.map(s =>
+    `<button class="suggest-btn" onclick="quickRevise('${s.text}', '${s.detail.replace(/'/g, "\\'")}')">${s.icon} ${s.text}</button>`
+  ).join('');
+
+  // 小节选择器
+  const sel = document.getElementById('reviseSection');
+  sel.innerHTML = '<option value="">全文修订</option>' +
+    sections.map(s => `<option value="${s}">只改「${s}」</option>`).join('');
+}
+
+async function quickRevise(label, detail) {
+  const content = document.getElementById('contentEditor').value;
+  if (!content) return;
+
+  const section = document.getElementById('reviseSection').value;
+  await executeRevise(detail || label, section);
+}
+
+async function doRevise() {
+  const instruction = document.getElementById('reviseInput').value.trim();
+  if (!instruction) { toast('请输入修改意见', 'error'); return; }
+  const section = document.getElementById('reviseSection').value;
+  await executeRevise(instruction, section);
+  document.getElementById('reviseInput').value = '';
+}
+
+async function executeRevise(instruction, sectionTitle) {
+  const content = document.getElementById('contentEditor').value;
+  if (!content) return;
+
+  const btn = document.getElementById('reviseBtn');
+  btn.disabled = true; btn.textContent = '修订中...';
+
+  // 保存修订前
+  const beforeContent = content;
+
+  try {
+    const resp = await fetch('/api/revise', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        content: content,
+        instruction: instruction,
+        topic: currentArticle.topic,
+        outline: currentArticle.outline || {},
+        platform: currentArticle.platform,
+        style_profile_id: currentArticle.styleProfileId || '',
+        section_title: sectionTitle || ''
+      })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      // 记录修订历史
+      const record = {
+        instruction: instruction,
+        section_title: sectionTitle || '',
+        before: beforeContent,
+        after: data.content,
+        timestamp: new Date().toLocaleTimeString()
+      };
+      revisionHistory.push(record);
+
+      // 更新正文
+      currentArticle.content = data.content;
+      document.getElementById('contentEditor').value = data.content;
+      document.getElementById('wordCount').textContent = `${data.word_count} 字`;
+
+      // 刷新修订历史
+      renderRevisionHistory();
+
+      // 自动重新验证
+      validateContent(data.content);
+
+      const scope = sectionTitle ? `「${sectionTitle}」` : '全文';
+      toast(`${scope}修订完成`);
+    } else { toast('修订失败', 'error'); }
+  } catch(e) { toast('修订失败: ' + e.message, 'error'); }
+
+  btn.disabled = false; btn.textContent = '🔄 修订';
+}
+
+function renderRevisionHistory() {
+  const container = document.getElementById('revisionHistory');
+  const list = document.getElementById('revisionList');
+  if (!revisionHistory.length) { container.style.display = 'none'; return; }
+
+  container.style.display = 'block';
+  list.innerHTML = revisionHistory.map((r, i) => `
+    <div class="revision-item">
+      <div class="rev-header">
+        <span class="rev-instruction">${r.instruction.length > 40 ? r.instruction.slice(0, 40) + '...' : r.instruction}</span>
+        <span class="rev-meta">${r.timestamp}</span>
+      </div>
+      <div>
+        ${r.section_title
+          ? `<span class="rev-tag section">局部：${r.section_title}</span>`
+          : `<span class="rev-tag global">全文修订</span>`}
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${r.before.length} → ${r.after.length} 字</span>
+      </div>
+      <div class="rev-actions">
+        <button class="btn btn-sm" onclick="rollbackRevision(${i})">↩️ 撤销此次</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function rollbackRevision(index) {
+  const record = revisionHistory[index];
+  if (!record) return;
+
+  // 回滚到修订前
+  currentArticle.content = record.before;
+  document.getElementById('contentEditor').value = record.before;
+  document.getElementById('wordCount').textContent = `${record.before.length} 字`;
+
+  // 移除该条及之后的修订记录
+  revisionHistory.splice(index);
+  renderRevisionHistory();
+
+  // 重新验证
+  validateContent(record.before);
+  toast('已撤销修订');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -933,7 +1148,8 @@ async function saveArticle() {
       body: JSON.stringify({
         id: currentArticle.id, topic: currentArticle.topic,
         platform: currentArticle.platform, mode: currentArticle.mode,
-        outline: outline, content: content, html: currentArticle.html || ''
+        outline: outline, content: content, html: currentArticle.html || '',
+        revision_history: revisionHistory
       })
     });
     const data = await resp.json();

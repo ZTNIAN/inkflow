@@ -313,6 +313,108 @@ async def generate_content(req: GenerateContentReq):
     except Exception as e:
         raise HTTPException(500, f"正文生成失败：{e}")
 
+# ── 修订建议（根据验证结果智能推荐修改方向）──
+
+class SuggestReq(BaseModel):
+    content: str
+    platform: str = "wechat"
+    outline: dict = {}
+
+@app.post("/api/revise/suggest")
+async def suggest_revisions(req: SuggestReq):
+    """根据验证结果和内容分析，智能推荐修改方向"""
+    v = Validator()
+    result = v.validate(req.content, req.platform)
+
+    suggestions = []
+
+    # 基于验证问题生成建议
+    for issue in result.issues:
+        if issue.rule == "AI_MARKER":
+            suggestions.append({"text": "减少 AI 痕迹词", "detail": issue.description, "icon": "🤖"})
+        elif issue.rule == "FORBIDDEN":
+            suggestions.append({"text": "删除禁止句式", "detail": issue.description, "icon": "🚫"})
+        elif issue.rule == "LONG_PARA":
+            suggestions.append({"text": "拆分过长段落", "detail": issue.description, "icon": "📱"})
+        elif issue.rule == "CONSECUTIVE_LE":
+            suggestions.append({"text": "减少「了」字连用", "detail": issue.description, "icon": "✍️"})
+        elif issue.rule == "REPORT":
+            suggestions.append({"text": "去掉报告腔", "detail": issue.description, "icon": "📋"})
+        elif issue.rule == "COLLECTIVE":
+            suggestions.append({"text": "删除集体套话", "detail": issue.description, "icon": "👥"})
+        elif issue.rule == "META":
+            suggestions.append({"text": "去掉元叙事词汇", "detail": issue.description, "icon": "📖"})
+
+    # 通用建议
+    suggestions.append({"text": "开头更抓人", "detail": "让前3句更有冲击力，制造悬念或共鸣", "icon": "🎣"})
+    suggestions.append({"text": "结尾加互动引导", "detail": "引导点赞、转发、评论", "icon": "💬"})
+    suggestions.append({"text": "语气更口语化", "detail": "像跟朋友聊天一样，去掉书面腔", "icon": "🗣️"})
+    suggestions.append({"text": "增加具体案例", "detail": "用真实故事或数据支撑观点", "icon": "📊"})
+
+    # 基于大纲小节的局部修订建议
+    section_suggestions = []
+    if req.outline and req.outline.get("sections"):
+        for sec in req.outline["sections"]:
+            title = sec.get("title", "")
+            if title:
+                section_suggestions.append(title)
+
+    return {
+        "ok": True,
+        "suggestions": suggestions[:8],  # 最多 8 条
+        "sections": section_suggestions,
+        "score": result.score,
+        "passed": result.passed,
+        "issue_count": len(result.issues),
+    }
+
+# ── 多轮修订 ──────────────────────────────────────────────────────────────────
+
+class ReviseReq(BaseModel):
+    content: str
+    instruction: str
+    topic: str = ""
+    outline: dict = {}
+    platform: str = "wechat"
+    style_profile_id: str = ""
+    section_title: str = ""  # 空 = 全局修订
+
+@app.post("/api/revise")
+async def revise_content(req: ReviseReq):
+    if not req.content.strip():
+        raise HTTPException(400, "没有可修订的内容")
+    if not req.instruction.strip():
+        raise HTTPException(400, "请输入修改意见")
+
+    style = None
+    if req.style_profile_id:
+        try:
+            style = Pipeline.load_style(req.style_profile_id)
+        except FileNotFoundError:
+            pass
+
+    outline = None
+    if req.outline:
+        from pipeline import Outline
+        outline = Outline(
+            title_candidates=req.outline.get("title_candidates", []),
+            selected_title=req.outline.get("selected_title", ""),
+            hook=req.outline.get("hook", ""),
+            sections=req.outline.get("sections", []),
+            cta=req.outline.get("cta", ""),
+            tags=req.outline.get("tags", []),
+        )
+
+    try:
+        revised = await asyncio.to_thread(
+            _pipeline(0.5).revise_content,
+            req.content, req.instruction, req.topic,
+            outline, req.platform, style, req.section_title,
+        )
+        return {"ok": True, "content": revised, "word_count": len(revised)}
+    except Exception as e:
+        raise HTTPException(500, f"修订失败：{e}")
+
 # ── 排版 ──────────────────────────────────────────────────────────────────────
 
 class FormatReq(BaseModel):
@@ -387,6 +489,7 @@ class SaveArticleReq(BaseModel):
     outline: dict = {}
     content: str = ""
     html: str = ""
+    revision_history: list = []
 
 @app.post("/api/articles/save")
 def save_article(req: SaveArticleReq):
@@ -406,6 +509,7 @@ def save_article(req: SaveArticleReq):
         "html": req.html,
         "word_count": len(req.content),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "revision_history": req.revision_history,
     }
 
     art_dir = BASE_DIR / "data" / "articles"

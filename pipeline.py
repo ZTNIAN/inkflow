@@ -41,6 +41,16 @@ class Outline:
 
 
 @dataclass
+class RevisionRecord:
+    """单次修订记录"""
+    instruction: str = ""
+    section_title: str = ""           # 空 = 全局修订
+    before: str = ""                  # 修订前全文
+    after: str = ""                   # 修订后全文
+    timestamp: str = ""
+
+
+@dataclass
 class Article:
     """完整文章"""
     id: str = ""
@@ -56,6 +66,7 @@ class Article:
     validation: ValidationResult = field(default_factory=lambda: ValidationResult(True))
     created_at: str = ""
     word_count: int = 0
+    revision_history: list = field(default_factory=list)  # list[RevisionRecord]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -453,6 +464,87 @@ class Pipeline:
         chunks.append(resp.content.strip())
 
         return "\n\n".join(chunks)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Step 4.5: 多轮修订（人机共创核心 — 用户反馈 → AI 修改）
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def revise_content(
+        self,
+        current_content: str,
+        instruction: str,
+        topic: str = "",
+        outline: Outline | None = None,
+        platform: str = "wechat",
+        style_profile: StyleProfile | None = None,
+        section_title: str = "",  # 如果指定，只修订该小节
+    ) -> str:
+        """根据用户反馈修订正文，支持全局修订和局部修订"""
+
+        style_instruction = ""
+        if style_profile:
+            style_instruction = f"""
+## 写作风格（修订时保持一致）
+- 语调：{style_profile.tone}
+- 惯用词：{'、'.join(style_profile.vocabulary[:10])}
+"""
+
+        outline_context = ""
+        if outline:
+            outline_context = f"""
+## 文章大纲（修订时保持结构一致）
+- 标题：{outline.selected_title}
+- 结构：{' → '.join(s.get('title', '') for s in outline.sections)}
+"""
+
+        if section_title:
+            # ── 局部修订：只改指定小节 ──
+            prompt = f"""你是一位资深的{platform}编辑。用户对文章的某个小节不满意，请根据反馈修改该小节，保持其他部分不变。
+
+## 文章主题
+{topic}
+{outline_context}
+## 当前全文
+{current_content}
+
+## 用户反馈
+{instruction}
+
+## 要求修订的小节
+「{section_title}」
+
+{style_instruction}
+## 修订规则
+1. 只修改「{section_title}」小节的内容，其他小节保持原样
+2. 保持与上文和下文的衔接自然
+3. 保持整体字数大致不变（±20%）
+4. 直接输出修订后的完整全文，不要加任何标注或说明"""
+        else:
+            # ── 全局修订 ──
+            prompt = f"""你是一位资深的{platform}编辑。用户对文章不满意，请根据反馈修改全文。
+
+## 文章主题
+{topic}
+{outline_context}
+## 当前全文
+{current_content}
+
+## 用户修改意见
+{instruction}
+
+{style_instruction}
+## 修订规则
+1. 认真理解用户的修改意见，针对性修改
+2. 保持文章整体结构和风格一致
+3. 保持字数大致不变（±20%），除非用户明确要求增减
+4. 直接输出修订后的完整全文，不要加任何标注或说明"""
+
+        resp = with_retry(lambda: self.llm.complete([
+            Message("system", f"你是{platform}资深编辑，擅长根据反馈精准修改文章。直接输出修订后的全文。"),
+            Message("user", prompt),
+        ], temperature=0.5))
+
+        return resp.content.strip()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 5: 排版输出（生成适配公众号编辑器的 HTML）

@@ -110,6 +110,47 @@ Validator (validator.py)
 
 ---
 
+## 开发进度
+
+### ✅ 已完成（2026-04-23）
+- **多轮修订** — 人机共创核心能力
+  - `Pipeline.revise_content()` — 全局/局部修订（指定小节只改那一段）
+  - `POST /api/revise` — 执行修订
+  - `POST /api/revise/suggest` — 根据验证结果智能推荐修改方向
+  - 前端 Step 4 修订面板：快捷建议按钮、自定义意见、小节选择、修订历史+撤销
+  - 修订历史持久化（保存/加载文章时一并存储）
+- **JSON 解析修复** — DeepSeek 弯引号（`""`）导致 `json.loads` 崩溃
+  - `llm.py` 新增 `_fix_smart_quotes()` 状态机，按字符串边界精准替换
+
+### 🔜 下一步计划（按优先级）
+
+#### P0：手动参考链接抓取（信息源）
+> 新媒体写作的灵魂是信息源。当前 AI 凭空编，写出来没有信息增量。
+
+**方案（最简版）：**
+- 前端增加「参考链接」输入框（支持粘贴 1-3 个 URL）
+- 后端新增 `POST /api/fetch-references` 端点
+  - 用 `httpx` 抓取网页 → 提取正文（`readability` 或 `trafilatura`）
+  - 调用 LLM 从抓取内容中提取核心事实、数据、金句
+  - 返回结构化的参考素材，注入后续大纲/正文生成的 prompt
+- 比全自动 RAG 简单得多，但已经能让文章有信息增量
+
+**关键文件：** `app.py`（新端点）、`pipeline.py`（新方法）、`index.html`（Step 2 素材区改造）
+
+#### P1：排版模板（交付质量）
+> 公众号读者在手机上看，排版直接影响完读率。当前只有暗色预览，实际发公众号需要亮色清爽样式。
+
+**方案：**
+- 新增 `templates/` 目录，存放不同排版风格的 HTML/CSS 模板
+- 至少 3 种风格：简约白、活泼彩、商务灰
+- `pipeline.py` 的 `format_html()` 改为接收模板参数
+- 前端导出步骤增加「排版风格」选择器
+- 模板用内联 CSS（公众号编辑器不支持外部样式表）
+
+**关键文件：** `templates/`（新目录）、`pipeline.py`（`format_html` 改造）、`app.py`（模板列表端点）、`index.html`（Step 5 模板选择）
+
+---
+
 ## 已知问题 & 待优化
 
 ### 已知问题
@@ -117,15 +158,12 @@ Validator (validator.py)
 2. **风格提取样本格式** — 目前只支持 .txt/.md，不支持 .docx/.pdf
 3. **无持久化用户系统** — 所有数据本地文件存储，无登录/多用户
 
-### 待优化方向
-1. **RAG / 联网搜索** — 接入搜索引擎或知识库，让 AI 有实时信息源
-2. **敏感词库扩充** — 当前只有基础库，可接入平台官方违禁词列表
-3. **图片建议** — 在合适位置建议配图，甚至生成配图描述
-4. **多轮修订** — 类似原项目的审计→修订闭环，可加回
-5. **批量生成** — 输入多个主题，批量出稿
-6. **SEO 优化** — 针对头条的搜索推荐算法优化关键词密度
-7. **排版模板** — 多种排版风格（简约/活泼/商务），不只是默认暗色
-8. **查重预警** — 检测生成内容是否与网上已有文章过于相似
+### 其他待做方向
+- **敏感词库扩充** — 当前只有基础库，可接入平台官方违禁词列表
+- **图片建议** — 在合适位置建议配图，甚至生成配图描述
+- **批量生成** — 输入多个主题，批量出稿
+- **SEO 优化** — 针对头条的搜索推荐算法优化关键词密度
+- **查重预警** — 检测生成内容是否与网上已有文章过于相似
 
 ---
 
@@ -160,9 +198,13 @@ python3 app.py
 | 管线流程 | `pipeline.py` | `Pipeline.run_full()` |
 | 大纲生成逻辑 | `pipeline.py` | `Pipeline.generate_outline()` |
 | 正文生成逻辑 | `pipeline.py` | `Pipeline.generate_content()` |
+| **多轮修订** | `pipeline.py` | `Pipeline.revise_content()` |
+| **修订建议** | `app.py` | `POST /api/revise/suggest` |
 | LLM 调用 | `llm.py` | `LLM.complete()` |
+| **JSON 解析/弯引号修复** | `llm.py` | `parse_json()` / `_fix_smart_quotes()` |
 | 验证规则 | `validator.py` | `Validator.validate()` |
 | 前端界面 | `index.html` | `<script>` 部分的 JS 函数 |
+| **前端修订面板** | `index.html` | `doRevise()` / `quickRevise()` / `loadSuggestions()` |
 | 配置 | `.env` | `DEEPSEEK_*` 变量 |
 
 ---

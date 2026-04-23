@@ -57,11 +57,57 @@ def parse_json(raw: str, schema: type[T] | None = None) -> dict | T:
     """从 LLM 输出中安全提取 JSON"""
     stripped = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.MULTILINE)
     stripped = re.sub(r"\s*```\s*$", "", stripped, flags=re.MULTILINE).strip()
-    # 修复截断
-    data = json.loads(_repair(stripped))
+
+    # 尝试直接解析
+    try:
+        data = json.loads(_repair(stripped))
+    except json.JSONDecodeError:
+        # 修复 LLM 输出的弯引号（DeepSeek 等模型常见问题）
+        # 策略：把字符串值内的弯引号替换为转义的直引号
+        fixed = _fix_smart_quotes(stripped)
+        data = json.loads(_repair(fixed))
+
     if schema:
         return schema.model_validate(data)
     return data
+
+
+def _fix_smart_quotes(text: str) -> str:
+    """修复 JSON 字符串值内的弯引号，避免破坏 JSON 结构"""
+    result = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+
+        if not in_string:
+            if ch == '"':
+                in_string = True
+                result.append(ch)
+            else:
+                result.append(ch)
+        else:
+            # 在字符串内部
+            if ch == '\\':
+                # 转义序列，保留原样
+                result.append(ch)
+                if i + 1 < len(text):
+                    i += 1
+                    result.append(text[i])
+            elif ch == '"':
+                # 字符串结束
+                in_string = False
+                result.append(ch)
+            elif ch in '\u201c\u201d':
+                # 弯双引号 → 转义的直双引号
+                result.append('\\"')
+            elif ch in '\u2018\u2019':
+                # 弯单引号 → 转义的直单引号
+                result.append("\\'")
+            else:
+                result.append(ch)
+        i += 1
+    return ''.join(result)
 
 
 def parse_json_list(raw: str) -> list[dict]:

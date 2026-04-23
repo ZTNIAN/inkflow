@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI 写作工坊 — 公众号 / 头条文章生成器</title>
+<title>InkFlow — AI 写作工坊 v2</title>
 <style>
 :root{--bg:#0f1117;--bg2:#181b23;--bg3:#1e222d;--surface:#232836;--surface2:#2a3040;
 --border:#333a4a;--text:#e8ecf2;--text2:#9ca3b0;--text3:#6b7280;
@@ -20,6 +20,9 @@ display:flex;align-items:center;padding:0 24px;gap:16px;position:fixed;top:0;lef
 .brand{font-size:17px;font-weight:700;color:var(--text)}
 .brand span{color:var(--blue)}
 .topbar-right{margin-left:auto;display:flex;gap:10px;align-items:center}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+.status-dot.busy{background:var(--yellow);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* ── 主布局 ── */
 .main{position:fixed;top:52px;left:0;right:0;bottom:0;display:flex;overflow:hidden}
@@ -69,7 +72,6 @@ border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13p
 .form-textarea{min-height:100px;resize:vertical;line-height:1.6}
 .form-hint{font-size:11px;color:var(--text3);margin-top:4px}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 
 /* ── 步骤条 ── */
 .steps{display:flex;gap:4px;margin-bottom:20px;padding:12px 16px;background:var(--bg2);
@@ -127,16 +129,11 @@ font-size:12px;border-left:3px solid var(--border)}
 .suggest-btn{padding:6px 14px;background:var(--bg);border:1px solid var(--border);border-radius:20px;
 font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:4px}
 .suggest-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-bg)}
-.suggest-btn.loading{opacity:.5;cursor:wait}
 .revision-item{padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;
 margin-bottom:8px;font-size:12px}
 .revision-item .rev-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .revision-item .rev-instruction{color:var(--blue);font-weight:500}
 .revision-item .rev-meta{color:var(--text3);font-size:11px}
-.revision-item .rev-diff{color:var(--text2);font-size:12px;line-height:1.6;max-height:80px;
-overflow:hidden;position:relative}
-.revision-item .rev-diff::after{content:'';position:absolute;bottom:0;left:0;right:0;height:20px;
-background:linear-gradient(transparent,var(--bg))}
 .revision-item .rev-actions{display:flex;gap:6px;margin-top:6px}
 .rev-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:500}
 .rev-tag.global{background:var(--blue-bg);color:var(--blue)}
@@ -165,6 +162,7 @@ border-bottom:2px solid transparent;transition:all .15s}
 font-size:13px;z-index:200;animation:slideIn .3s ease;box-shadow:var(--shadow)}
 .toast.success{background:var(--green-bg);color:var(--green);border:1px solid var(--green)}
 .toast.error{background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
+.toast.info{background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue)}
 @keyframes slideIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
 
 /* ── Modal ── */
@@ -174,16 +172,41 @@ display:flex;align-items:center;justify-content:center}
 padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shadow:var(--shadow)}
 .modal-title{font-size:16px;font-weight:600;margin-bottom:16px}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+/* ── 字数指示器 ── */
+.word-indicator{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);margin-top:6px}
+.word-bar{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;max-width:200px}
+.word-bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.word-bar-fill.low{background:var(--yellow)}
+.word-bar-fill.good{background:var(--green)}
+.word-bar-fill.high{background:var(--red)}
+
+/* ── 快捷键提示 ── */
+.kbd{display:inline-block;padding:2px 6px;background:var(--bg);border:1px solid var(--border);
+border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin-left:4px}
+
+/* ── 自动保存状态 ── */
+.autosave-status{font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px}
+.autosave-status.saved{color:var(--green)}
+
+/* ── 流式进度 ── */
+.stream-progress{margin-bottom:12px}
+.stream-progress .progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:8px}
+.stream-progress .progress-fill{height:100%;background:var(--blue);border-radius:3px;transition:width .5s ease}
+.stream-progress .progress-label{font-size:12px;color:var(--text2)}
 </style>
 </head>
 <body>
 
 <!-- 顶部导航 -->
 <div class="topbar">
-  <div class="brand">✍️ <span>AI 写作工坊</span></div>
+  <div class="brand">✍️ <span>InkFlow</span></div>
   <div class="topbar-right">
+    <span class="autosave-status" id="autosaveStatus"></span>
+    <span class="status-dot" id="statusDot" title="就绪"></span>
+    <button class="btn btn-sm" onclick="showBatchGenerate()">📦 批量</button>
     <button class="btn btn-sm" onclick="showSettings()">⚙️ 设置</button>
-    <button class="btn btn-primary btn-sm" onclick="showNewArticle()">+ 新文章</button>
+    <button class="btn btn-primary btn-sm" onclick="showNewArticle()">+ 新文章 <span class="kbd">N</span></button>
   </div>
 </div>
 
@@ -206,7 +229,7 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
     <div id="welcomeView">
       <div class="empty">
         <div class="empty-icon">✍️</div>
-        <div class="empty-text">AI 写作工坊<br>公众号 / 头条文章一键生成</div>
+        <div class="empty-text">InkFlow v2 — AI 写作工坊<br>公众号 / 头条文章一键生成</div>
         <button class="btn btn-primary" onclick="showNewArticle()">+ 创建第一篇文章</button>
       </div>
 
@@ -217,19 +240,17 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
             <div><strong style="color:var(--text)">Step 1</strong> — 输入主题，选择平台和文章类型</div>
             <div><strong style="color:var(--text)">Step 2</strong> — （可选）粘贴对标素材，AI 提取核心信息</div>
             <div><strong style="color:var(--text)">Step 3</strong> — AI 生成大纲 + 标题候选，<span style="color:var(--green)">你来选择和修改</span></div>
-            <div><strong style="color:var(--text)">Step 4</strong> — AI 分块生成正文，自动衔接</div>
+            <div><strong style="color:var(--text)">Step 4</strong> — AI 分块生成正文，实时流式输出</div>
             <div><strong style="color:var(--text)">Step 5</strong> — 写后验证（去AI味 + 敏感词），一键排版导出</div>
           </div>
         </div>
         <div class="card">
-          <div class="card-title">💡 支持的模式</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">
-            <div><strong style="color:var(--blue)">公众号</strong><br><span style="color:var(--text2)">深度长文 1500-3000 字<br>情绪共鸣 + 排版留白</span></div>
-            <div><strong style="color:var(--yellow)">头条</strong><br><span style="color:var(--text2)">信息流图文 800-2000 字<br>争议点 + 接地气语言</span></div>
-            <div><strong style="color:var(--green)">干货型</strong><br><span style="color:var(--text2)">方法论 / 步骤清单</span></div>
-            <div><strong style="color:var(--red)">争议型</strong><br><span style="color:var(--text2)">反常识 / 引发讨论</span></div>
-            <div><strong style="color:var(--purple)">故事型</strong><br><span style="color:var(--text2)">案例切入 / 情感共鸣</span></div>
-            <div><strong style="color:var(--text2)">测评型</strong><br><span style="color:var(--text2)">对比分析 / 帮决策</span></div>
+          <div class="card-title">⌨️ 快捷键</div>
+          <div style="font-size:13px;color:var(--text2);display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">S</kbd> 保存文章</div>
+            <div><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Enter</kbd> 生成/确认</div>
+            <div><kbd class="kbd">N</kbd> 新文章</div>
+            <div><kbd class="kbd">Esc</kbd> 关闭弹窗</div>
           </div>
         </div>
       </div>
@@ -300,7 +321,7 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
         </div>
         <div class="btn-group">
           <button class="btn" onclick="goStep(2)">下一步：素材 →</button>
-          <button class="btn btn-primary" onclick="quickGenerate()">⚡ 一键生成（跳过素材）</button>
+          <button class="btn btn-primary" onclick="quickGenerate()">⚡ 一键生成（跳过素材） <span class="kbd">Ctrl+↵</span></button>
         </div>
       </div>
 
@@ -314,9 +335,18 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
               placeholder="将对标文章的正文粘贴在这里，AI 会提取核心事实、观点和金句用于写作..."></textarea>
             <div class="form-hint">支持纯文本粘贴。粘贴 1-3 篇对标文章效果最佳。</div>
           </div>
-          <div class="btn-group">
-            <button class="btn" onclick="goStep(3)">跳过，直接到大纲 →</button>
-            <button class="btn btn-primary" onclick="extractMaterial()">🔍 提取素材要点</button>
+          <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
+            <div class="form-group">
+              <label class="form-label">🔗 参考链接（每行一个 URL）</label>
+              <textarea class="form-textarea" id="referenceUrls" rows="3"
+                placeholder="https://example.com/article1&#10;https://example.com/article2&#10;&#10;粘贴参考文章的链接，AI 会自动抓取内容并提取素材"></textarea>
+              <div class="form-hint">支持公众号、知乎、头条等主流平台文章链接，最多 5 个</div>
+            </div>
+            <div class="btn-group">
+              <button class="btn" onclick="goStep(3)">跳过，直接到大纲 →</button>
+              <button class="btn btn-primary" onclick="extractMaterial()">🔍 提取素材要点</button>
+              <button class="btn" onclick="fetchReferences()" id="fetchRefBtn">🔗 抓取链接内容</button>
+            </div>
           </div>
         </div>
         <div id="materialResult" style="display:none">
@@ -328,13 +358,12 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
         </div>
       </div>
 
-      <!-- Step 3: 大纲（人机共创） -->
+      <!-- Step 3: 大纲 -->
       <div class="step-panel" id="step3" style="display:none">
         <div id="outlineLoading" style="display:none">
           <div class="loading"><div class="spinner"></div>正在生成大纲和标题候选...</div>
         </div>
         <div id="outlineContent" style="display:none">
-          <!-- 标题候选 -->
           <div class="card">
             <div class="card-title">🎯 标题候选（点击选择）</div>
             <div id="titleCandidates"></div>
@@ -344,9 +373,8 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
             </div>
           </div>
 
-          <!-- 大纲结构 -->
           <div class="card">
-            <div class="card-title">📋 文章结构（可拖拽调整）</div>
+            <div class="card-title">📋 文章结构</div>
             <div class="form-group">
               <label class="form-label">开头钩子</label>
               <textarea class="form-textarea" id="hookEditor" rows="3" style="min-height:60px"></textarea>
@@ -364,7 +392,7 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
 
           <div class="btn-group">
             <button class="btn" onclick="regenerateOutline()">🔄 重新生成大纲</button>
-            <button class="btn btn-primary" onclick="goStep(4); generateContent()">✍️ 确认大纲，开始写正文</button>
+            <button class="btn btn-primary" onclick="confirmOutlineAndWrite()">✍️ 确认大纲，开始写正文 <span class="kbd">Ctrl+↵</span></button>
           </div>
         </div>
       </div>
@@ -372,34 +400,34 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
       <!-- Step 4: 正文 + 多轮修订 -->
       <div class="step-panel" id="step4" style="display:none">
         <div id="contentLoading" style="display:none">
-          <div class="loading"><div class="spinner"></div><span id="contentProgress">正在生成正文...</span></div>
+          <div class="stream-progress" id="streamProgress">
+            <div class="progress-label" id="progressLabel">准备生成...</div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          </div>
         </div>
         <div id="contentResult" style="display:none">
-          <!-- 正文编辑区 -->
           <div class="card">
             <div class="card-title">✍️ 正文内容（可直接编辑）</div>
             <textarea class="form-textarea" id="contentEditor" rows="20"
               style="min-height:350px;font-size:14px;line-height:1.8"></textarea>
             <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
-              <span class="form-hint" id="wordCount"></span>
+              <div class="word-indicator" id="wordIndicator">
+                <span id="wordCountText">0 字</span>
+                <div class="word-bar"><div class="word-bar-fill" id="wordBarFill" style="width:0%"></div></div>
+                <span id="wordTargetText"></span>
+              </div>
               <button class="btn btn-sm" onclick="revalidate()">🔍 重新验证</button>
             </div>
           </div>
 
-          <!-- 验证结果 -->
           <div id="validationResult"></div>
 
-          <!-- 修订面板 -->
           <div class="card" id="revisePanel">
             <div class="card-title">🔄 AI 修订（人机共创）</div>
-
-            <!-- 智能建议 -->
             <div id="suggestArea" style="margin-bottom:14px">
               <div class="form-label">💡 点击快速修订</div>
               <div id="suggestButtons" class="btn-group" style="gap:6px"></div>
             </div>
-
-            <!-- 自定义修订 -->
             <div class="form-group">
               <label class="form-label">✏️ 自定义修改意见</label>
               <div style="display:flex;gap:8px;align-items:flex-start">
@@ -407,20 +435,17 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
                   <option value="">全文修订</option>
                 </select>
                 <textarea class="form-textarea" id="reviseInput" rows="2"
-                  style="min-height:42px;flex:1" placeholder="例：第二段太干了，加一个真实案例；结尾换个角度..."></textarea>
+                  style="min-height:42px;flex:1" placeholder="例：第二段太干了，加一个真实案例..."></textarea>
                 <button class="btn btn-primary" onclick="doRevise()" id="reviseBtn"
                   style="flex-shrink:0;align-self:flex-end">🔄 修订</button>
               </div>
             </div>
-
-            <!-- 修订历史 -->
             <div id="revisionHistory" style="display:none">
               <div class="form-label" style="margin-top:12px">📜 修订记录</div>
               <div id="revisionList"></div>
             </div>
           </div>
 
-          <!-- 底部操作 -->
           <div class="btn-group">
             <button class="btn" onclick="generateContent()">🔄 重新生成正文</button>
             <button class="btn btn-success" onclick="goStep(5)">✅ 满意了，去排版导出 →</button>
@@ -434,6 +459,18 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
           <div class="tab active" onclick="switchExportTab('preview', this)">📱 预览</div>
           <div class="tab" onclick="switchExportTab('html', this)">🔧 HTML 代码</div>
           <div class="tab" onclick="switchExportTab('text', this)">📝 纯文本</div>
+          <div class="tab" onclick="switchExportTab('images', this)">🖼️ 配图建议</div>
+          <div class="tab" onclick="switchExportTab('seo', this)">📊 SEO</div>
+        </div>
+
+        <!-- 排版风格选择 -->
+        <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+          <label class="form-label" style="margin:0;white-space:nowrap">排版风格：</label>
+          <select class="form-select" id="templateSelect" style="width:200px" onchange="formatAndPreview()">
+            <option value="minimal">简约白 — 干货/知识类</option>
+            <option value="vibrant">活泼彩 — 情感/故事类</option>
+            <option value="business">商务灰 — 商业/测评类</option>
+          </select>
         </div>
 
         <div id="exportPreview" class="card" style="padding:0;overflow:hidden">
@@ -451,12 +488,26 @@ padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shado
               style="font-size:14px;line-height:1.8"></textarea>
           </div>
         </div>
+        <div id="exportImages" style="display:none">
+          <div class="card">
+            <div class="card-title">🖼️ 配图建议</div>
+            <div id="imageSuggestions" style="font-size:13px;color:var(--text2)">点击「生成配图建议」获取推荐</div>
+          </div>
+        </div>
+        <div id="exportSeo" style="display:none">
+          <div class="card">
+            <div class="card-title">📊 SEO 优化建议</div>
+            <div id="seoResult" style="font-size:13px;color:var(--text2)">点击「分析 SEO」获取优化建议</div>
+          </div>
+        </div>
 
         <div class="btn-group" style="margin-top:12px">
           <button class="btn btn-primary" onclick="formatAndPreview()">📐 生成排版</button>
           <button class="btn" onclick="copyToClipboard('html')">📋 复制 HTML</button>
           <button class="btn" onclick="copyToClipboard('text')">📋 复制纯文本</button>
-          <button class="btn btn-success" onclick="saveArticle()">💾 保存文章</button>
+          <button class="btn" onclick="suggestImages()">🖼️ 配图建议</button>
+          <button class="btn" onclick="analyzeSeo()">📊 SEO 分析</button>
+          <button class="btn btn-success" onclick="saveArticle()">💾 保存文章 <span class="kbd">Ctrl+S</span></button>
         </div>
       </div>
     </div>
@@ -474,11 +525,52 @@ let currentArticle = {
 };
 let currentStep = 1;
 let styles = [];
+let revisionHistory = [];
+let autoSaveTimer = null;
+let isGenerating = false;
+let useStreamMode = true; // 默认使用流式模式
+
+// 字数目标
+const WORD_TARGETS = {
+  wechat: { min: 1500, max: 3000 },
+  toutiao: { min: 800, max: 2000 }
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 初始化
 // ═══════════════════════════════════════════════════════════════════════════
-window.onload = () => { loadArticles(); loadStyles(); };
+window.onload = () => { loadArticles(); loadStyles(); setupKeyboardShortcuts(); };
+
+function setupKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+S 保存
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      if (currentArticle.content) saveArticle();
+    }
+    // Ctrl+Enter 生成/确认
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      if (currentStep === 1) quickGenerate();
+      else if (currentStep === 3) confirmOutlineAndWrite();
+    }
+    // N 新文章（无输入焦点时）
+    if (e.key === 'n' && !isInputFocused()) {
+      e.preventDefault();
+      showNewArticle();
+    }
+    // Esc 关闭弹窗
+    if (e.key === 'Escape') {
+      const modal = document.querySelector('.modal-overlay');
+      if (modal) modal.remove();
+    }
+  });
+}
+
+function isInputFocused() {
+  const el = document.activeElement;
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+}
 
 async function loadArticles() {
   try {
@@ -519,10 +611,12 @@ function showNewArticle() {
   currentArticle = { id: '', topic: '', platform: 'wechat', mode: '干货型',
     sourceText: '', material: null, styleProfileId: '', outline: null, content: '', html: '' };
   currentStep = 1;
+  revisionHistory = [];
   document.getElementById('welcomeView').style.display = 'none';
   document.getElementById('articleView').style.display = 'block';
   showStep(1);
   document.getElementById('topicInput').focus();
+  clearAutoSave();
 }
 
 async function loadArticle(id) {
@@ -535,17 +629,14 @@ async function loadArticle(id) {
       outline: data.outline, content: data.content, html: data.html,
       validation: data.validation
     };
-    // 恢复修订历史
     revisionHistory = data.revision_history || [];
     renderRevisionHistory();
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('articleView').style.display = 'block';
-    // 跳到正文或导出步骤
     if (data.content) {
       document.getElementById('contentEditor').value = data.content;
-      document.getElementById('wordCount').textContent = `${data.content.length} 字`;
+      updateWordIndicator(data.content.length);
       if (data.validation) showValidation(data.validation);
-      // 加载修订建议
       setTimeout(() => loadSuggestions(), 300);
       if (data.html) {
         document.getElementById('previewBox').innerHTML = data.html;
@@ -564,10 +655,15 @@ async function loadArticle(id) {
 }
 
 function goStep(n) {
-  if (n > currentStep + 1) return; // 不能跳太远
+  if (n > currentStep + 1) return;
   currentStep = n;
   showStep(n);
   if (n === 3 && !currentArticle.outline) generateOutline();
+}
+
+function confirmOutlineAndWrite() {
+  goStep(4);
+  generateContent();
 }
 
 function showStep(n) {
@@ -612,7 +708,7 @@ function showSettings() {
         <button class="btn btn-sm" onclick="extractStyle()" id="extractStyleBtn">🔍 提取风格</button>
         <div id="styleList" style="margin-top:12px"></div>
         <div class="modal-actions">
-          <button class="btn" onclick="this.closest('.modal-overlay').remove()">取消</button>
+          <button class="btn" onclick="this.closest('.modal-overlay').remove()">取消 <span class="kbd">Esc</span></button>
           <button class="btn btn-primary" onclick="saveSettings()">保存</button>
         </div>
       </div>`;
@@ -624,6 +720,7 @@ function showSettings() {
 
 function renderStyleList() {
   const el = document.getElementById('styleList');
+  if (!el) return;
   if (!styles.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-top:8px">暂无已保存的风格</div>'; return; }
   el.innerHTML = styles.map(s => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)">
@@ -697,6 +794,7 @@ async function extractMaterial() {
   const sourceText = document.getElementById('sourceInput').value.trim();
   if (!sourceText) { toast('请粘贴对标文章', 'error'); return; }
   currentArticle.sourceText = sourceText;
+  setBusy(true, '提取素材...');
   try {
     const resp = await fetch('/api/extract-material', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -716,15 +814,17 @@ async function extractMaterial() {
       toast('素材提取成功');
     }
   } catch(e) { toast('提取失败: ' + e.message, 'error'); }
+  setBusy(false);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Step 3: 大纲（人机共创）
+// Step 3: 大纲
 // ═══════════════════════════════════════════════════════════════════════════
 async function generateOutline() {
   getFormData();
   document.getElementById('outlineLoading').style.display = 'block';
   document.getElementById('outlineContent').style.display = 'none';
+  setBusy(true, '生成大纲...');
   try {
     const body = {
       topic: currentArticle.topic, platform: currentArticle.platform,
@@ -743,10 +843,10 @@ async function generateOutline() {
   } catch(e) { toast('生成失败: ' + e.message, 'error'); }
   document.getElementById('outlineLoading').style.display = 'none';
   document.getElementById('outlineContent').style.display = 'block';
+  setBusy(false);
 }
 
 function renderOutline(outline) {
-  // 标题候选
   const tc = document.getElementById('titleCandidates');
   tc.innerHTML = outline.title_candidates.map((t, i) => `
     <div class="title-candidate ${t === outline.selected_title ? 'selected' : ''}"
@@ -755,25 +855,23 @@ function renderOutline(outline) {
     </div>
   `).join('');
 
-  // 钩子
   document.getElementById('hookEditor').value = outline.hook || '';
 
-  // 小节
   const se = document.getElementById('sectionsEditor');
   se.innerHTML = outline.sections.map((s, i) => `
-    <div class="section-card" draggable="true" data-idx="${i}">
+    <div class="section-card" data-idx="${i}">
       <div class="section-title">📌 ${s.title || '小节 ' + (i+1)}</div>
       <div class="section-points">${(s.key_points||[]).map(p=>`• ${p}`).join('<br>')}</div>
       <div class="section-budget">字数预算: ~${s.word_budget || 500}字</div>
       <div style="margin-top:6px">
         <button class="btn btn-sm" onclick="editSection(${i})">✏️ 编辑</button>
+        ${i > 0 ? `<button class="btn btn-sm" onclick="moveSection(${i}, -1)">↑</button>` : ''}
+        ${i < outline.sections.length-1 ? `<button class="btn btn-sm" onclick="moveSection(${i}, 1)">↓</button>` : ''}
       </div>
     </div>
   `).join('');
 
-  // CTA
   document.getElementById('ctaEditor').value = outline.cta || '';
-  // 标签
   document.getElementById('tagsEditor').value = (outline.tags || []).join(', ');
 }
 
@@ -784,6 +882,7 @@ function selectTitle(el, title) {
 }
 
 async function moreTitles() {
+  setBusy(true, '生成更多标题...');
   try {
     const resp = await fetch('/api/generate/titles', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -806,6 +905,7 @@ async function moreTitles() {
       toast('已追加新标题');
     }
   } catch(e) { toast('生成失败', 'error'); }
+  setBusy(false);
 }
 
 function editTitle() {
@@ -872,6 +972,14 @@ function removeSection(idx) {
   renderOutline(currentArticle.outline);
 }
 
+function moveSection(idx, direction) {
+  const sections = currentArticle.outline.sections;
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= sections.length) return;
+  [sections[idx], sections[newIdx]] = [sections[newIdx], sections[idx]];
+  renderOutline(currentArticle.outline);
+}
+
 function collectOutlineFromUI() {
   const outline = currentArticle.outline;
   outline.selected_title = outline.selected_title || outline.title_candidates[0];
@@ -887,14 +995,78 @@ async function regenerateOutline() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Step 4: 正文生成
+// Step 4: 正文生成（支持流式）
 // ═══════════════════════════════════════════════════════════════════════════
 async function generateContent() {
   const outline = collectOutlineFromUI();
   document.getElementById('contentLoading').style.display = 'block';
   document.getElementById('contentResult').style.display = 'none';
-  document.getElementById('contentProgress').textContent = '正在生成正文（分块中，请耐心等待）...';
+  setBusy(true, '生成正文...');
 
+  if (useStreamMode) {
+    await generateContentStream(outline);
+  } else {
+    await generateContentNormal(outline);
+  }
+
+  setBusy(false);
+}
+
+async function generateContentStream(outline) {
+  const progressEl = document.getElementById('streamProgress');
+  const labelEl = document.getElementById('progressLabel');
+  const fillEl = document.getElementById('progressFill');
+
+  try {
+    const body = {
+      outline: outline, topic: currentArticle.topic,
+      platform: currentArticle.platform,
+      source_text: currentArticle.sourceText || '',
+      style_profile_id: currentArticle.styleProfileId || ''
+    };
+    const resp = await fetch('/api/generate/content/stream', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'progress') {
+            labelEl.textContent = event.label;
+            fillEl.style.width = `${(event.step / event.total) * 100}%`;
+          } else if (event.type === 'done') {
+            fillEl.style.width = '100%';
+            labelEl.textContent = '生成完成！';
+            onContentReady(event.content, event.word_count);
+          } else if (event.type === 'error') {
+            toast('生成失败: ' + event.message, 'error');
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    toast('流式生成失败: ' + e.message, 'error');
+  }
+
+  document.getElementById('contentLoading').style.display = 'none';
+  document.getElementById('contentResult').style.display = 'block';
+}
+
+async function generateContentNormal(outline) {
+  document.getElementById('progressLabel').textContent = '正在生成正文（分块中，请耐心等待）...';
   try {
     const body = {
       outline: outline, topic: currentArticle.topic,
@@ -907,16 +1079,7 @@ async function generateContent() {
     });
     const data = await resp.json();
     if (data.ok) {
-      currentArticle.content = data.content;
-      document.getElementById('contentEditor').value = data.content;
-      document.getElementById('wordCount').textContent = `${data.word_count} 字`;
-      // 重置修订历史
-      revisionHistory = [];
-      renderRevisionHistory();
-      // 自动验证
-      validateContent(data.content);
-      // 加载修订建议
-      loadSuggestions();
+      onContentReady(data.content, data.word_count);
     } else { toast('正文生成失败', 'error'); }
   } catch(e) { toast('生成失败: ' + e.message, 'error'); }
 
@@ -924,6 +1087,62 @@ async function generateContent() {
   document.getElementById('contentResult').style.display = 'block';
 }
 
+function onContentReady(content, wordCount) {
+  currentArticle.content = content;
+  document.getElementById('contentEditor').value = content;
+  updateWordIndicator(wordCount);
+  revisionHistory = [];
+  renderRevisionHistory();
+  validateContent(content);
+  loadSuggestions();
+  triggerAutoSave();
+}
+
+function updateWordIndicator(count) {
+  const platform = currentArticle.platform || 'wechat';
+  const target = WORD_TARGETS[platform];
+  const el = document.getElementById('wordCountText');
+  const bar = document.getElementById('wordBarFill');
+  const targetText = document.getElementById('wordTargetText');
+
+  el.textContent = `${count} 字`;
+  const pct = Math.min(100, (count / target.max) * 100);
+  bar.style.width = `${pct}%`;
+  bar.className = 'word-bar-fill ' + (count < target.min ? 'low' : count > target.max ? 'high' : 'good');
+  targetText.textContent = `目标 ${target.min}-${target.max}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 自动保存
+// ═══════════════════════════════════════════════════════════════════════════
+function triggerAutoSave() {
+  clearAutoSave();
+  autoSaveTimer = setTimeout(() => {
+    if (currentArticle.content) {
+      saveArticle(true); // silent
+    }
+  }, 5000);
+}
+
+function clearAutoSave() {
+  if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+}
+
+// 内容编辑器监听
+document.addEventListener('DOMContentLoaded', () => {
+  const editor = document.getElementById('contentEditor');
+  if (editor) {
+    editor.addEventListener('input', () => {
+      const len = editor.value.length;
+      updateWordIndicator(len);
+      triggerAutoSave();
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 验证
+// ═══════════════════════════════════════════════════════════════════════════
 async function validateContent(content) {
   try {
     const resp = await fetch('/api/validate', {
@@ -952,10 +1171,8 @@ function showValidation(data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Step 4.5: 多轮修订
+// 多轮修订
 // ═══════════════════════════════════════════════════════════════════════════
-let revisionHistory = [];  // [{instruction, section_title, before, after, timestamp}]
-
 async function loadSuggestions() {
   const content = document.getElementById('contentEditor').value;
   if (!content) return;
@@ -969,29 +1186,22 @@ async function loadSuggestions() {
       })
     });
     const data = await resp.json();
-    if (data.ok) {
-      renderSuggestions(data.suggestions, data.sections);
-    }
+    if (data.ok) renderSuggestions(data.suggestions, data.sections);
   } catch(e) { console.error('建议加载失败', e); }
 }
 
 function renderSuggestions(suggestions, sections) {
-  // 快捷建议按钮
   const btns = document.getElementById('suggestButtons');
   btns.innerHTML = suggestions.map(s =>
     `<button class="suggest-btn" onclick="quickRevise('${s.text}', '${s.detail.replace(/'/g, "\\'")}')">${s.icon} ${s.text}</button>`
   ).join('');
 
-  // 小节选择器
   const sel = document.getElementById('reviseSection');
   sel.innerHTML = '<option value="">全文修订</option>' +
     sections.map(s => `<option value="${s}">只改「${s}」</option>`).join('');
 }
 
 async function quickRevise(label, detail) {
-  const content = document.getElementById('contentEditor').value;
-  if (!content) return;
-
   const section = document.getElementById('reviseSection').value;
   await executeRevise(detail || label, section);
 }
@@ -1010,8 +1220,7 @@ async function executeRevise(instruction, sectionTitle) {
 
   const btn = document.getElementById('reviseBtn');
   btn.disabled = true; btn.textContent = '修订中...';
-
-  // 保存修订前
+  setBusy(true, '修订中...');
   const beforeContent = content;
 
   try {
@@ -1029,7 +1238,6 @@ async function executeRevise(instruction, sectionTitle) {
     });
     const data = await resp.json();
     if (data.ok) {
-      // 记录修订历史
       const record = {
         instruction: instruction,
         section_title: sectionTitle || '',
@@ -1038,24 +1246,19 @@ async function executeRevise(instruction, sectionTitle) {
         timestamp: new Date().toLocaleTimeString()
       };
       revisionHistory.push(record);
-
-      // 更新正文
       currentArticle.content = data.content;
       document.getElementById('contentEditor').value = data.content;
-      document.getElementById('wordCount').textContent = `${data.word_count} 字`;
-
-      // 刷新修订历史
+      updateWordIndicator(data.word_count);
       renderRevisionHistory();
-
-      // 自动重新验证
       validateContent(data.content);
-
+      triggerAutoSave();
       const scope = sectionTitle ? `「${sectionTitle}」` : '全文';
       toast(`${scope}修订完成`);
     } else { toast('修订失败', 'error'); }
   } catch(e) { toast('修订失败: ' + e.message, 'error'); }
 
   btn.disabled = false; btn.textContent = '🔄 修订';
+  setBusy(false);
 }
 
 function renderRevisionHistory() {
@@ -1086,18 +1289,13 @@ function renderRevisionHistory() {
 function rollbackRevision(index) {
   const record = revisionHistory[index];
   if (!record) return;
-
-  // 回滚到修订前
   currentArticle.content = record.before;
   document.getElementById('contentEditor').value = record.before;
-  document.getElementById('wordCount').textContent = `${record.before.length} 字`;
-
-  // 移除该条及之后的修订记录
+  updateWordIndicator(record.before.length);
   revisionHistory.splice(index);
   renderRevisionHistory();
-
-  // 重新验证
   validateContent(record.before);
+  triggerAutoSave();
   toast('已撤销修订');
 }
 
@@ -1109,10 +1307,12 @@ async function formatAndPreview() {
   if (!content) { toast('没有正文内容', 'error'); return; }
   currentArticle.content = content;
   const outline = currentArticle.outline || {};
+  const template = document.getElementById('templateSelect')?.value || 'minimal';
+  setBusy(true, '排版中...');
   try {
     const resp = await fetch('/api/format', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ content, title: outline.selected_title || '', tags: outline.tags || [] })
+      body: JSON.stringify({ content, title: outline.selected_title || '', tags: outline.tags || [], template })
     });
     const data = await resp.json();
     if (data.ok) {
@@ -1123,6 +1323,121 @@ async function formatAndPreview() {
       toast('排版生成成功');
     }
   } catch(e) { toast('排版失败: ' + e.message, 'error'); }
+  setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 新功能：参考链接抓取
+// ═══════════════════════════════════════════════════════════════════════════
+async function fetchReferences() {
+  const urlsText = document.getElementById('referenceUrls').value.trim();
+  if (!urlsText) { toast('请粘贴参考链接', 'error'); return; }
+  const urls = urlsText.split('\n').map(u => u.trim()).filter(Boolean);
+  if (!urls.length) { toast('请提供至少一个链接', 'error'); return; }
+
+  getFormData();
+  const btn = document.getElementById('fetchRefBtn');
+  btn.disabled = true; btn.textContent = '抓取中...';
+  setBusy(true, '抓取参考链接...');
+
+  try {
+    const resp = await fetch('/api/fetch-references', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ urls, topic: currentArticle.topic })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.material = data.material;
+      const m = data.material;
+      document.getElementById('materialResult').style.display = 'block';
+      document.getElementById('materialContent').innerHTML = `
+        <div style="margin-bottom:8px"><strong>核心事实：</strong><br>${(m.core_facts||[]).map(f=>'• '+f).join('<br>')}</div>
+        <div style="margin-bottom:8px"><strong>关键观点：</strong><br>${(m.key_opinions||[]).map(o=>'• '+o).join('<br>')}</div>
+        <div style="margin-bottom:8px"><strong>金句：</strong><br>${(m.golden_sentences||[]).map(g=>'「'+g+'」').join('<br>')}</div>
+        <div><strong>数据/案例：</strong><br>${(m.data_points||[]).map(d=>'📊 '+d).join('<br>')}</div>
+      `;
+      toast('参考链接抓取成功');
+    }
+  } catch(e) { toast('抓取失败: ' + e.message, 'error'); }
+
+  btn.disabled = false; btn.textContent = '🔗 抓取链接内容';
+  setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 新功能：图片建议
+// ═══════════════════════════════════════════════════════════════════════════
+async function suggestImages() {
+  const content = document.getElementById('contentEditor').value;
+  if (!content) { toast('没有正文内容', 'error'); return; }
+  const outline = currentArticle.outline || {};
+
+  setBusy(true, '生成配图建议...');
+  try {
+    const resp = await fetch('/api/suggest-images', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content, outline })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const el = document.getElementById('imageSuggestions');
+      el.innerHTML = data.suggestions.map(s => `
+        <div style="padding:10px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--purple)">
+          <div style="font-weight:600;margin-bottom:4px">📍 ${s.position}</div>
+          <div style="color:var(--text2)">${s.description}</div>
+        </div>
+      `).join('');
+      const imgTab = document.querySelector('.tab[onclick*="images"]');
+      if (imgTab) switchExportTab('images', imgTab);
+      toast('配图建议已生成');
+    }
+  } catch(e) { toast('生成失败: ' + e.message, 'error'); }
+  setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 新功能：SEO 分析
+// ═══════════════════════════════════════════════════════════════════════════
+async function analyzeSeo() {
+  const content = document.getElementById('contentEditor').value;
+  if (!content) { toast('没有正文内容', 'error'); return; }
+
+  setBusy(true, 'SEO 分析中...');
+  try {
+    const resp = await fetch('/api/seo', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content, topic: currentArticle.topic })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const s = data.seo;
+      const el = document.getElementById('seoResult');
+      el.innerHTML = `
+        <div style="margin-bottom:12px">
+          <strong>核心关键词：</strong><span class="tag">${s.primary_keyword}</span>
+        </div>
+        <div style="margin-bottom:12px">
+          <strong>相关关键词：</strong>${(s.secondary_keywords||[]).map(k=>'<span class="tag">'+k+'</span>').join(' ')}
+        </div>
+        <div style="margin-bottom:12px">
+          <strong>SEO 优化标题：</strong><span style="color:var(--green)">${s.suggested_title}</span>
+        </div>
+        <div style="margin-bottom:12px">
+          <strong>关键词密度：</strong>${s.keyword_density}
+        </div>
+        <div>
+          <strong>优化建议：</strong>
+          <ul style="margin-top:6px;padding-left:20px;color:var(--text2)">
+            ${(s.suggestions||[]).map(t=>'<li>'+t+'</li>').join('')}
+          </ul>
+        </div>
+      `;
+      const seoTab = document.querySelector('.tab[onclick*="seo"]');
+      if (seoTab) switchExportTab('seo', seoTab);
+      toast('SEO 分析完成');
+    }
+  } catch(e) { toast('分析失败: ' + e.message, 'error'); }
+  setBusy(false);
 }
 
 function switchExportTab(tab, el) {
@@ -1131,6 +1446,8 @@ function switchExportTab(tab, el) {
   document.getElementById('exportPreview').style.display = tab === 'preview' ? 'block' : 'none';
   document.getElementById('exportHtml').style.display = tab === 'html' ? 'block' : 'none';
   document.getElementById('exportText').style.display = tab === 'text' ? 'block' : 'none';
+  document.getElementById('exportImages').style.display = tab === 'images' ? 'block' : 'none';
+  document.getElementById('exportSeo').style.display = tab === 'seo' ? 'block' : 'none';
 }
 
 function copyToClipboard(type) {
@@ -1139,8 +1456,8 @@ function copyToClipboard(type) {
   navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'));
 }
 
-async function saveArticle() {
-  const content = document.getElementById('contentEditor').value;
+async function saveArticle(silent = false) {
+  const content = document.getElementById('contentEditor')?.value || currentArticle.content;
   const outline = currentArticle.outline || {};
   try {
     const resp = await fetch('/api/articles/save', {
@@ -1155,10 +1472,21 @@ async function saveArticle() {
     const data = await resp.json();
     if (data.ok) {
       currentArticle.id = data.id;
-      toast('文章已保存');
+      if (!silent) {
+        toast('文章已保存');
+      } else {
+        showAutoSaveStatus();
+      }
       loadArticles();
     }
-  } catch(e) { toast('保存失败', 'error'); }
+  } catch(e) { if (!silent) toast('保存失败', 'error'); }
+}
+
+function showAutoSaveStatus() {
+  const el = document.getElementById('autosaveStatus');
+  el.textContent = '✓ 已自动保存';
+  el.classList.add('saved');
+  setTimeout(() => { el.textContent = ''; el.classList.remove('saved'); }, 2000);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1170,6 +1498,99 @@ function toast(msg, type = 'success') {
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 3000);
+}
+
+function setBusy(busy, label = '') {
+  isGenerating = busy;
+  const dot = document.getElementById('statusDot');
+  dot.classList.toggle('busy', busy);
+  dot.title = busy ? label : '就绪';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 新功能：批量生成
+// ═══════════════════════════════════════════════════════════════════════════
+function showBatchGenerate() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-title">📦 批量生成大纲</div>
+      <div class="form-group">
+        <label class="form-label">主题列表（每行一个）</label>
+        <textarea class="form-textarea" id="batchTopics" rows="8"
+          placeholder="如何养成早起习惯&#10;为什么年轻人不想结婚&#10;30岁前必须明白的5个人生道理&#10;&#10;每行一个主题，最多10个"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">发布平台</label>
+          <select class="form-select" id="batchPlatform">
+            <option value="wechat">公众号</option>
+            <option value="toutiao">头条</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">文章类型</label>
+          <select class="form-select" id="batchMode">
+            <option value="干货型">干货型</option>
+            <option value="争议型">争议型</option>
+            <option value="故事型">故事型</option>
+            <option value="测评型">测评型</option>
+          </select>
+        </div>
+      </div>
+      <div id="batchResult" style="display:none;margin-top:12px"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+        <button class="btn btn-primary" onclick="doBatchGenerate()" id="batchBtn">🚀 开始批量生成</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+async function doBatchGenerate() {
+  const topicsText = document.getElementById('batchTopics').value.trim();
+  if (!topicsText) { toast('请输入至少一个主题', 'error'); return; }
+  const topics = topicsText.split('\n').map(t => t.trim()).filter(Boolean);
+  if (topics.length > 10) { toast('最多支持10个主题', 'error'); return; }
+
+  const platform = document.getElementById('batchPlatform').value;
+  const mode = document.getElementById('batchMode').value;
+  const btn = document.getElementById('batchBtn');
+  btn.disabled = true; btn.textContent = '生成中...';
+  setBusy(true, `批量生成${topics.length}篇...`);
+
+  try {
+    const resp = await fetch('/api/generate/batch', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ topics, platform, mode })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const el = document.getElementById('batchResult');
+      el.style.display = 'block';
+      el.innerHTML = data.results.map(r => {
+        if (r.ok) {
+          const o = r.outline;
+          return `<div style="padding:10px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--green)">
+            <div style="font-weight:600">${r.topic}</div>
+            <div style="color:var(--green);font-size:13px;margin-top:4px">✅ ${o.selected_title}</div>
+            <div style="color:var(--text3);font-size:12px;margin-top:2px">${o.sections.length} 个小节</div>
+          </div>`;
+        } else {
+          return `<div style="padding:10px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--red)">
+            <div style="font-weight:600">${r.topic}</div>
+            <div style="color:var(--red);font-size:13px;margin-top:4px">❌ ${r.error}</div>
+          </div>`;
+        }
+      }).join('');
+      toast('批量生成完成');
+    }
+  } catch(e) { toast('批量生成失败: ' + e.message, 'error'); }
+
+  btn.disabled = false; btn.textContent = '🚀 开始批量生成';
+  setBusy(false);
 }
 </script>
 </body>

@@ -1,8 +1,8 @@
-"""LLM 抽象层 — 复用原项目设计，精简到只保留核心"""
+"""LLM 抽象层 — 支持普通调用 + 流式输出"""
 from __future__ import annotations
 import json, re, time
 from dataclasses import dataclass
-from typing import Callable, TypeVar
+from typing import Callable, Generator, TypeVar
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
@@ -52,6 +52,23 @@ class LLM:
             output_tokens=usage.completion_tokens if usage else 0,
         )
 
+    def stream(self, messages: list[Message], temperature: float | None = None,
+               max_tokens: int | None = None) -> Generator[str, None, None]:
+        """流式输出，逐 token yield"""
+        kwargs = dict(
+            model=self.model,
+            messages=[m.to_dict() for m in messages],
+            temperature=temperature if temperature is not None else self.temperature,
+            stream=True,
+        )
+        mt = max_tokens or self.max_tokens
+        if mt > 0:
+            kwargs["max_tokens"] = mt
+        stream = self.client.chat.completions.create(**kwargs)
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
 
 def parse_json(raw: str, schema: type[T] | None = None) -> dict | T:
     """从 LLM 输出中安全提取 JSON"""
@@ -63,7 +80,6 @@ def parse_json(raw: str, schema: type[T] | None = None) -> dict | T:
         data = json.loads(_repair(stripped))
     except json.JSONDecodeError:
         # 修复 LLM 输出的弯引号（DeepSeek 等模型常见问题）
-        # 策略：把字符串值内的弯引号替换为转义的直引号
         fixed = _fix_smart_quotes(stripped)
         data = json.loads(_repair(fixed))
 
@@ -87,22 +103,17 @@ def _fix_smart_quotes(text: str) -> str:
             else:
                 result.append(ch)
         else:
-            # 在字符串内部
             if ch == '\\':
-                # 转义序列，保留原样
                 result.append(ch)
                 if i + 1 < len(text):
                     i += 1
                     result.append(text[i])
             elif ch == '"':
-                # 字符串结束
                 in_string = False
                 result.append(ch)
             elif ch in '\u201c\u201d':
-                # 弯双引号 → 转义的直双引号
                 result.append('\\"')
             elif ch in '\u2018\u2019':
-                # 弯单引号 → 转义的直单引号
                 result.append("\\'")
             else:
                 result.append(ch)

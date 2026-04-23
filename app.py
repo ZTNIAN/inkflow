@@ -1,12 +1,12 @@
-"""FastAPI 服务 — 公众号/头条文章生成器"""
+"""FastAPI 服务 — 公众号/头条文章生成器 v3（+参考链接+排版模板+批量+SEO）"""
 from __future__ import annotations
-import asyncio, json, os
+import asyncio, json, os, time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from llm import LLM
@@ -15,11 +15,17 @@ from validator import Validator
 
 # ── 初始化 ────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Article Writer", version="1.0.0")
+app = FastAPI(title="InkFlow - AI 写作工坊", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 BASE_DIR = Path(__file__).parent
 ENV_PATH = BASE_DIR / ".env"
+
+# ── 并发保护 ──────────────────────────────────────────────────────────────────
+# 同一时间只允许一个生成任务运行，防止 API 并发超限
+_generation_lock = asyncio.Lock()
+_generation_active = {"active": False, "started_at": 0, "task": ""}
+
 
 def _load_env():
     if ENV_PATH.exists():
@@ -28,6 +34,7 @@ def _load_env():
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 os.environ[k.strip()] = v.strip()
+
 
 def _create_llm(temperature: float = 0.7) -> LLM:
     _load_env()
@@ -41,8 +48,10 @@ def _create_llm(temperature: float = 0.7) -> LLM:
         temperature=temperature,
     )
 
+
 def _pipeline(temperature: float = 0.7) -> Pipeline:
     return Pipeline(_create_llm(temperature))
+
 
 # ── 请求模型 ──────────────────────────────────────────────────────────────────
 
@@ -86,11 +95,28 @@ class SaveSettingsReq(BaseModel):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     deepseek_model: str = "deepseek-chat"
 
+
+# ── 健康检查 ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+def health_check():
+    _load_env()
+    configured = bool(os.environ.get("DEEPSEEK_API_KEY", ""))
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "configured": configured,
+        "generation_active": _generation_active["active"],
+        "uptime": time.time(),
+    }
+
+
 # ── 页面路由 ──────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def index():
     return FileResponse(str(BASE_DIR / "index.html"))
+
 
 # ── 设置 ──────────────────────────────────────────────────────────────────────
 
@@ -105,17 +131,17 @@ def get_settings():
         "configured": bool(key),
     }
 
+
 @app.post("/api/settings")
 def save_settings(req: SaveSettingsReq):
     lines = [
-        "# Article Writer 配置",
+        "# InkFlow 配置",
         f"DEEPSEEK_BASE_URL={req.deepseek_base_url}",
         f"DEEPSEEK_MODEL={req.deepseek_model}",
     ]
     if req.deepseek_api_key and not req.deepseek_api_key.endswith("***"):
         lines.append(f"DEEPSEEK_API_KEY={req.deepseek_api_key}")
     else:
-        # 保留原值
         if ENV_PATH.exists():
             for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
                 if line.strip().startswith("DEEPSEEK_API_KEY="):
@@ -123,11 +149,13 @@ def save_settings(req: SaveSettingsReq):
     ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": True}
 
+
 # ── 文章列表 ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/articles")
 def list_articles():
     return Pipeline.list_articles()
+
 
 @app.get("/api/articles/{article_id}")
 def get_article(article_id: str):
@@ -136,6 +164,7 @@ def get_article(article_id: str):
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
 
+
 @app.delete("/api/articles/{article_id}")
 def delete_article(article_id: str):
     path = BASE_DIR / "data" / "articles" / f"{article_id}.json"
@@ -143,11 +172,13 @@ def delete_article(article_id: str):
         path.unlink()
     return {"ok": True}
 
+
 # ── 风格管理 ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/styles")
 def list_styles():
     return Pipeline.list_styles()
+
 
 @app.get("/api/styles/{style_id}")
 def get_style(style_id: str):
@@ -163,6 +194,7 @@ def get_style(style_id: str):
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
 
+
 @app.delete("/api/styles/{style_id}")
 def delete_style(style_id: str):
     path = BASE_DIR / "data" / "styles" / f"{style_id}.json"
@@ -170,12 +202,12 @@ def delete_style(style_id: str):
         path.unlink()
     return {"ok": True}
 
+
 @app.post("/api/styles/extract")
 async def extract_style(
     name: str = Form("我的风格"),
     files: list[UploadFile] = File(...),
 ):
-    """从上传的样本文章中提取写作风格"""
     samples = []
     for f in files[:5]:
         content = await f.read()
@@ -205,11 +237,13 @@ async def extract_style(
     except Exception as e:
         raise HTTPException(500, f"风格提取失败：{e}")
 
+
 # ── 素材提取 ──────────────────────────────────────────────────────────────────
 
 class ExtractMaterialReq(BaseModel):
     source_text: str
     topic: str
+
 
 @app.post("/api/extract-material")
 async def extract_material(req: ExtractMaterialReq):
@@ -220,6 +254,7 @@ async def extract_material(req: ExtractMaterialReq):
         return {"ok": True, "material": material}
     except Exception as e:
         raise HTTPException(500, f"素材提取失败：{e}")
+
 
 # ── 大纲生成 ──────────────────────────────────────────────────────────────────
 
@@ -260,6 +295,7 @@ async def generate_outline(req: GenerateOutlineReq):
     except Exception as e:
         raise HTTPException(500, f"大纲生成失败：{e}")
 
+
 # ── 标题优化 ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/generate/titles")
@@ -273,12 +309,16 @@ async def generate_titles(req: GenerateTitlesReq):
     except Exception as e:
         raise HTTPException(500, f"标题生成失败：{e}")
 
-# ── 正文生成 ──────────────────────────────────────────────────────────────────
+
+# ── 正文生成（普通模式）──────────────────────────────────────────────────────
 
 @app.post("/api/generate/content")
 async def generate_content(req: GenerateContentReq):
-    from pipeline import Outline
+    # 并发检查
+    if _generation_active["active"]:
+        raise HTTPException(429, f"另一个生成任务正在进行中（{_generation_active['task']}），请等待完成")
 
+    from pipeline import Outline
     outline = Outline(
         title_candidates=req.outline.get("title_candidates", []),
         selected_title=req.outline.get("selected_title", ""),
@@ -304,6 +344,7 @@ async def generate_content(req: GenerateContentReq):
         except Exception:
             pass
 
+    _generation_active.update({"active": True, "started_at": time.time(), "task": "正文生成"})
     try:
         content = await asyncio.to_thread(
             _pipeline(0.8).generate_content,
@@ -312,23 +353,74 @@ async def generate_content(req: GenerateContentReq):
         return {"ok": True, "content": content, "word_count": len(content)}
     except Exception as e:
         raise HTTPException(500, f"正文生成失败：{e}")
+    finally:
+        _generation_active.update({"active": False, "task": ""})
 
-# ── 修订建议（根据验证结果智能推荐修改方向）──
+
+# ── 正文生成（SSE 流式模式）──────────────────────────────────────────────────
+
+@app.post("/api/generate/content/stream")
+async def generate_content_stream(req: GenerateContentReq):
+    if _generation_active["active"]:
+        raise HTTPException(429, f"另一个生成任务正在进行中，请等待完成")
+
+    from pipeline import Outline
+    outline = Outline(
+        title_candidates=req.outline.get("title_candidates", []),
+        selected_title=req.outline.get("selected_title", ""),
+        hook=req.outline.get("hook", ""),
+        sections=req.outline.get("sections", []),
+        cta=req.outline.get("cta", ""),
+        tags=req.outline.get("tags", []),
+    )
+
+    style = None
+    if req.style_profile_id:
+        try:
+            style = Pipeline.load_style(req.style_profile_id)
+        except FileNotFoundError:
+            pass
+
+    material = None
+    if req.source_text.strip():
+        try:
+            material = await asyncio.to_thread(
+                _pipeline(0.3).extract_material, req.source_text, req.topic,
+            )
+        except Exception:
+            pass
+
+    _generation_active.update({"active": True, "started_at": time.time(), "task": "流式正文生成"})
+
+    def event_stream():
+        try:
+            pipeline = _pipeline(0.8)
+            for event in pipeline.generate_content_stream(
+                req.topic, outline, req.platform, material, style
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            _generation_active.update({"active": False, "task": ""})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ── 修订建议 ──────────────────────────────────────────────────────────────────
 
 class SuggestReq(BaseModel):
     content: str
     platform: str = "wechat"
     outline: dict = {}
 
+
 @app.post("/api/revise/suggest")
 async def suggest_revisions(req: SuggestReq):
-    """根据验证结果和内容分析，智能推荐修改方向"""
     v = Validator()
     result = v.validate(req.content, req.platform)
 
     suggestions = []
-
-    # 基于验证问题生成建议
     for issue in result.issues:
         if issue.rule == "AI_MARKER":
             suggestions.append({"text": "减少 AI 痕迹词", "detail": issue.description, "icon": "🤖"})
@@ -344,14 +436,18 @@ async def suggest_revisions(req: SuggestReq):
             suggestions.append({"text": "删除集体套话", "detail": issue.description, "icon": "👥"})
         elif issue.rule == "META":
             suggestions.append({"text": "去掉元叙事词汇", "detail": issue.description, "icon": "📖"})
+        elif issue.rule == "AI_FILLER":
+            suggestions.append({"text": "精简套话连接词", "detail": issue.description, "icon": "✂️"})
+        elif issue.rule == "REPETITIVE":
+            suggestions.append({"text": "避免重复表达", "detail": issue.description, "icon": "🔁"})
+        elif issue.rule == "EXCLAMATION":
+            suggestions.append({"text": "减少感叹号", "detail": issue.description, "icon": "❗"})
 
-    # 通用建议
     suggestions.append({"text": "开头更抓人", "detail": "让前3句更有冲击力，制造悬念或共鸣", "icon": "🎣"})
     suggestions.append({"text": "结尾加互动引导", "detail": "引导点赞、转发、评论", "icon": "💬"})
     suggestions.append({"text": "语气更口语化", "detail": "像跟朋友聊天一样，去掉书面腔", "icon": "🗣️"})
     suggestions.append({"text": "增加具体案例", "detail": "用真实故事或数据支撑观点", "icon": "📊"})
 
-    # 基于大纲小节的局部修订建议
     section_suggestions = []
     if req.outline and req.outline.get("sections"):
         for sec in req.outline["sections"]:
@@ -361,12 +457,13 @@ async def suggest_revisions(req: SuggestReq):
 
     return {
         "ok": True,
-        "suggestions": suggestions[:8],  # 最多 8 条
+        "suggestions": suggestions[:8],
         "sections": section_suggestions,
         "score": result.score,
         "passed": result.passed,
         "issue_count": len(result.issues),
     }
+
 
 # ── 多轮修订 ──────────────────────────────────────────────────────────────────
 
@@ -377,7 +474,8 @@ class ReviseReq(BaseModel):
     outline: dict = {}
     platform: str = "wechat"
     style_profile_id: str = ""
-    section_title: str = ""  # 空 = 全局修订
+    section_title: str = ""
+
 
 @app.post("/api/revise")
 async def revise_content(req: ReviseReq):
@@ -385,6 +483,9 @@ async def revise_content(req: ReviseReq):
         raise HTTPException(400, "没有可修订的内容")
     if not req.instruction.strip():
         raise HTTPException(400, "请输入修改意见")
+
+    if _generation_active["active"]:
+        raise HTTPException(429, f"另一个生成任务正在进行中，请等待完成")
 
     style = None
     if req.style_profile_id:
@@ -405,6 +506,7 @@ async def revise_content(req: ReviseReq):
             tags=req.outline.get("tags", []),
         )
 
+    _generation_active.update({"active": True, "started_at": time.time(), "task": "修订"})
     try:
         revised = await asyncio.to_thread(
             _pipeline(0.5).revise_content,
@@ -414,6 +516,9 @@ async def revise_content(req: ReviseReq):
         return {"ok": True, "content": revised, "word_count": len(revised)}
     except Exception as e:
         raise HTTPException(500, f"修订失败：{e}")
+    finally:
+        _generation_active.update({"active": False, "task": ""})
+
 
 # ── 排版 ──────────────────────────────────────────────────────────────────────
 
@@ -421,22 +526,34 @@ class FormatReq(BaseModel):
     content: str
     title: str = ""
     tags: list[str] = []
+    template: str = "minimal"
+
 
 @app.post("/api/format")
 async def format_html(req: FormatReq):
     try:
         html = await asyncio.to_thread(
-            _pipeline(0.3).format_html, req.content, req.title, req.tags,
+            _pipeline(0.3).format_html, req.content, req.title, req.tags, req.template,
         )
         return {"ok": True, "html": html}
     except Exception as e:
         raise HTTPException(500, f"排版失败：{e}")
+
+
+# ── 排版模板列表 ──────────────────────────────────────────────────────────────
+
+@app.get("/api/format/templates")
+def list_format_templates():
+    from pipeline import FORMAT_TEMPLATES
+    return [{"id": k, "name": v["name"], "desc": v["desc"]} for k, v in FORMAT_TEMPLATES.items()]
+
 
 # ── 验证 ──────────────────────────────────────────────────────────────────────
 
 class ValidateReq(BaseModel):
     content: str
     platform: str = "wechat"
+
 
 @app.post("/api/validate")
 def validate(req: ValidateReq):
@@ -450,16 +567,122 @@ def validate(req: ValidateReq):
                     for i in result.issues],
     }
 
-# ── 一键生成（完整管线）──
 
-@app.post("/api/generate/full")
-async def generate_full(req: GenerateReq):
+# ── 参考链接抓取 ──────────────────────────────────────────────────────────────
+
+class FetchReferencesReq(BaseModel):
+    urls: list[str]
+    topic: str
+
+
+@app.post("/api/fetch-references")
+async def fetch_references(req: FetchReferencesReq):
+    if not req.urls:
+        raise HTTPException(400, "请提供至少一个参考链接")
+    try:
+        material = await asyncio.to_thread(
+            _pipeline(0.3).extract_material_from_urls, req.urls, req.topic,
+        )
+        return {"ok": True, "material": material}
+    except Exception as e:
+        raise HTTPException(500, f"参考链接抓取失败：{e}")
+
+
+# ── 图片建议 ──────────────────────────────────────────────────────────────────
+
+class SuggestImagesReq(BaseModel):
+    content: str
+    outline: dict
+
+
+@app.post("/api/suggest-images")
+async def suggest_images(req: SuggestImagesReq):
+    from pipeline import Outline
+    outline = Outline(
+        title_candidates=req.outline.get("title_candidates", []),
+        selected_title=req.outline.get("selected_title", ""),
+        hook=req.outline.get("hook", ""),
+        sections=req.outline.get("sections", []),
+        cta=req.outline.get("cta", ""),
+        tags=req.outline.get("tags", []),
+    )
+    try:
+        suggestions = await asyncio.to_thread(
+            _pipeline(0.3).suggest_images, req.content, outline,
+        )
+        return {"ok": True, "suggestions": suggestions}
+    except Exception as e:
+        raise HTTPException(500, f"图片建议生成失败：{e}")
+
+
+# ── 批量生成 ──────────────────────────────────────────────────────────────────
+
+class BatchGenerateReq(BaseModel):
+    topics: list[str]
+    platform: str = "wechat"
+    mode: str = "干货型"
+    style_profile_id: str = ""
+
+
+@app.post("/api/generate/batch")
+async def generate_batch(req: BatchGenerateReq):
+    if not req.topics:
+        raise HTTPException(400, "请提供至少一个主题")
+    if len(req.topics) > 10:
+        raise HTTPException(400, "批量生成最多支持 10 个主题")
+
     style = None
     if req.style_profile_id:
         try:
             style = Pipeline.load_style(req.style_profile_id)
         except FileNotFoundError:
             pass
+
+    _generation_active.update({"active": True, "started_at": time.time(), "task": f"批量生成{len(req.topics)}篇"})
+    try:
+        results = await asyncio.to_thread(
+            _pipeline(0.8).generate_batch, req.topics, req.platform, req.mode, style,
+        )
+        return {"ok": True, "results": results}
+    except Exception as e:
+        raise HTTPException(500, f"批量生成失败：{e}")
+    finally:
+        _generation_active.update({"active": False, "task": ""})
+
+
+# ── SEO 优化建议 ──────────────────────────────────────────────────────────────
+
+class SeoReq(BaseModel):
+    content: str
+    topic: str
+
+
+@app.post("/api/seo")
+async def seo_optimize(req: SeoReq):
+    try:
+        result = await asyncio.to_thread(
+            _pipeline(0.3).optimize_seo, req.content, req.topic,
+        )
+        return {"ok": True, "seo": result}
+    except Exception as e:
+        raise HTTPException(500, f"SEO 分析失败：{e}")
+
+
+# ── 一键生成 ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/generate/full")
+async def generate_full(req: GenerateReq):
+    if _generation_active["active"]:
+        raise HTTPException(429, f"另一个生成任务正在进行中，请等待完成")
+
+    style = None
+    if req.style_profile_id:
+        try:
+            style = Pipeline.load_style(req.style_profile_id)
+        except FileNotFoundError:
+            pass
+
+    _generation_active.update({"active": True, "started_at": time.time(), "task": "一键完整生成"})
 
     def _run():
         return _pipeline(0.8).run_full(
@@ -478,6 +701,9 @@ async def generate_full(req: GenerateReq):
     except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(500, f"生成失败：{e}")
+    finally:
+        _generation_active.update({"active": False, "task": ""})
+
 
 # ── 保存/更新文章 ─────────────────────────────────────────────────────────────
 
@@ -491,11 +717,11 @@ class SaveArticleReq(BaseModel):
     html: str = ""
     revision_history: list = []
 
+
 @app.post("/api/articles/save")
 def save_article(req: SaveArticleReq):
     import uuid
     from datetime import datetime, timezone
-    from pipeline import _to_dict
 
     article_id = req.id or f"art_{uuid.uuid4().hex[:8]}"
     data = {

@@ -3,3 +3,6 @@ __pycache__/
 .env
 data/
 *.pyc
+venv/
+.env
+data/

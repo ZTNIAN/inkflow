@@ -1,9 +1,10 @@
-"""核心管线 — 公众号/头条文章生成"""
+"""核心管线 — 公众号/头条文章生成 v3（参考链接抓取+图片建议+批量生成+排版模板）"""
 from __future__ import annotations
-import json, uuid, re
+import json, uuid, re, html2text
 from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Generator
 
 from llm import LLM, Message, parse_json, parse_json_list, with_retry
 from validator import Validator, ValidationResult
@@ -12,61 +13,92 @@ DATA_DIR = Path(__file__).parent / "data"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 排版模板
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FORMAT_TEMPLATES = {
+    "minimal": {
+        "name": "简约白",
+        "desc": "干净清爽，适合干货/知识类",
+        "p_style": "margin:16px 0;line-height:1.8;font-size:15px;color:#333;",
+        "h3_style": "margin:24px 0 12px;font-size:17px;font-weight:bold;color:#1a1a1a;",
+        "strong_style": "color:#1a1a1a;",
+        "quote_style": "border-left:3px solid #e74c3c;padding:8px 16px;margin:16px 0;background:#f9f9f9;color:#555;font-size:14px;",
+        "tag_style": "display:inline-block;padding:2px 8px;margin:2px 4px;background:#f0f0f0;color:#666;border-radius:3px;font-size:12px;",
+    },
+    "vibrant": {
+        "name": "活泼彩",
+        "desc": "色彩丰富，适合情感/故事类",
+        "p_style": "margin:16px 0;line-height:1.8;font-size:15px;color:#333;",
+        "h3_style": "margin:24px 0 12px;font-size:18px;font-weight:bold;color:#e74c3c;",
+        "strong_style": "color:#e74c3c;",
+        "quote_style": "border-left:3px solid #f39c12;padding:10px 16px;margin:16px 0;background:#fef9e7;color:#7d6608;font-size:14px;border-radius:0 8px 8px 0;",
+        "tag_style": "display:inline-block;padding:3px 10px;margin:2px 4px;background:#fdebd0;color:#e67e22;border-radius:12px;font-size:12px;",
+    },
+    "business": {
+        "name": "商务灰",
+        "desc": "专业稳重，适合商业/测评类",
+        "p_style": "margin:16px 0;line-height:1.8;font-size:15px;color:#2c3e50;",
+        "h3_style": "margin:24px 0 12px;font-size:17px;font-weight:bold;color:#2c3e50;border-bottom:2px solid #3498db;padding-bottom:6px;",
+        "strong_style": "color:#2c3e50;",
+        "quote_style": "border-left:3px solid #3498db;padding:10px 16px;margin:16px 0;background:#ebf5fb;color:#5d6d7e;font-size:14px;",
+        "tag_style": "display:inline-block;padding:3px 10px;margin:2px 4px;background:#ebf5fb;color:#3498db;border-radius:4px;font-size:12px;font-weight:500;",
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 数据模型
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class StyleProfile:
-    """从用户样本文章中提取的风格特征"""
     id: str = ""
     name: str = ""
-    sentence_patterns: list[str] = field(default_factory=list)   # 句式特征
-    vocabulary: list[str] = field(default_factory=list)          # 惯用词汇
-    punctuation_habits: str = ""                                 # 标点习惯
-    tone: str = ""                                               # 整体语调
-    structure_style: str = ""                                    # 结构风格
-    sample_summary: str = ""                                     # 样本摘要
-    raw_profile: str = ""                                        # 完整分析文本
+    sentence_patterns: list[str] = field(default_factory=list)
+    vocabulary: list[str] = field(default_factory=list)
+    punctuation_habits: str = ""
+    tone: str = ""
+    structure_style: str = ""
+    sample_summary: str = ""
+    raw_profile: str = ""
 
 
 @dataclass
 class Outline:
-    """文章大纲"""
     title_candidates: list[str] = field(default_factory=list)
     selected_title: str = ""
-    hook: str = ""                    # 开头钩子
-    sections: list[dict] = field(default_factory=list)  # [{title, key_points, word_budget}]
-    cta: str = ""                     # 结尾行动号召
+    hook: str = ""
+    sections: list[dict] = field(default_factory=list)
+    cta: str = ""
     tags: list[str] = field(default_factory=list)
 
 
 @dataclass
 class RevisionRecord:
-    """单次修订记录"""
     instruction: str = ""
-    section_title: str = ""           # 空 = 全局修订
-    before: str = ""                  # 修订前全文
-    after: str = ""                   # 修订后全文
+    section_title: str = ""
+    before: str = ""
+    after: str = ""
     timestamp: str = ""
 
 
 @dataclass
 class Article:
-    """完整文章"""
     id: str = ""
     topic: str = ""
-    platform: str = "wechat"          # wechat | toutiao
-    mode: str = "干货型"              # 干货型 | 争议型 | 故事型 | 测评型
-    status: str = "draft"             # draft | outlined | writing | done
+    platform: str = "wechat"
+    mode: str = "干货型"
+    status: str = "draft"
     outline: Outline = field(default_factory=Outline)
     content: str = ""
     html: str = ""
     style_profile_id: str = ""
-    source_text: str = ""             # 对标素材
+    source_text: str = ""
     validation: ValidationResult = field(default_factory=lambda: ValidationResult(True))
     created_at: str = ""
     word_count: int = 0
-    revision_history: list = field(default_factory=list)  # list[RevisionRecord]
+    revision_history: list = field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -80,7 +112,7 @@ class Pipeline:
         self.validator = validator or Validator()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 0: 风格提取（从样本文章克隆用户写作风格）
+    # Step 0: 风格提取
     # ─────────────────────────────────────────────────────────────────────────
 
     def extract_style(self, samples: list[str], name: str = "我的风格") -> StyleProfile:
@@ -124,7 +156,6 @@ class Pipeline:
             raw_profile=json.dumps(data, ensure_ascii=False, indent=2),
         )
 
-        # 保存到文件
         style_dir = DATA_DIR / "styles"
         style_dir.mkdir(parents=True, exist_ok=True)
         path = style_dir / f"{profile.id}.json"
@@ -132,12 +163,11 @@ class Pipeline:
         return profile
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 1: 素材清洗（从对标文章/参考资料中提取核心信息）
+    # Step 1: 素材清洗
     # ─────────────────────────────────────────────────────────────────────────
 
     def extract_material(self, source_text: str, topic: str) -> dict:
-        """从对标素材中提取核心事实、观点、金句"""
-        text = source_text[:8000]  # 截断防超 token
+        text = source_text[:8000]
 
         prompt = f"""你是一位新媒体内容分析师。请从以下素材中提取可用于写作的核心信息。
 
@@ -170,7 +200,7 @@ class Pipeline:
         return parse_json(resp.content)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 2: 大纲生成（人机共创 — 返回候选，用户选择/修改后再继续）
+    # Step 2: 大纲生成
     # ─────────────────────────────────────────────────────────────────────────
 
     def generate_outline(
@@ -182,8 +212,6 @@ class Pipeline:
         style_profile: StyleProfile | None = None,
         extra_requirements: str = "",
     ) -> Outline:
-        """生成文章大纲 + 多个标题候选"""
-
         platform_desc = {
             "wechat": "公众号（社交分发，读者注重深度、共鸣、排版留白，1500-3000字）",
             "toutiao": "头条（算法推荐，读者注重信息增量、争议点、接地气，800-2000字）",
@@ -280,14 +308,12 @@ class Pipeline:
         data = parse_json(resp.content)
 
         titles = data.get("title_candidates", [])
-        # 清理标题：去掉"标题方案1（爆款型）："这种前缀
         cleaned = []
         for t in titles:
             t = re.sub(r'^标题方案\d+[（(][^）)]*[）)][:：]?\s*', '', t)
             t = re.sub(r'^\d+[.、]\s*', '', t)
             cleaned.append(t.strip() if t.strip() else t)
         titles = cleaned
-        # 确保有 5 个标题
         while len(titles) < 5:
             titles.append(f"关于{topic}的第{len(titles)+1}个角度")
 
@@ -301,13 +327,11 @@ class Pipeline:
         )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 3: 标题优化（单独生成更多标题候选 + 评分）
+    # Step 3: 标题优化
     # ─────────────────────────────────────────────────────────────────────────
 
     def generate_titles(self, topic: str, outline_summary: str,
                         platform: str = "wechat", count: int = 10) -> list[dict]:
-        """生成标题候选并评分"""
-
         prompt = f"""为以下主题的{platform}文章生成 {count} 个标题候选，并为每个标题评分。
 
 ## 主题
@@ -339,7 +363,7 @@ class Pipeline:
         return parse_json_list(resp.content)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 4: 正文生成（分块 + 全局上下文视窗）
+    # Step 4: 正文生成（普通模式）
     # ─────────────────────────────────────────────────────────────────────────
 
     def generate_content(
@@ -350,15 +374,94 @@ class Pipeline:
         material: dict | None = None,
         style_profile: StyleProfile | None = None,
     ) -> str:
-        """分块生成正文，带上下文衔接"""
-
         title = outline.selected_title or outline.title_candidates[0]
         all_sections = outline.sections
         chunks: list[str] = []
 
-        style_instruction = ""
-        if style_profile:
-            style_instruction = f"""
+        style_instruction = self._build_style_instruction(style_profile)
+
+        # 开头
+        print(f"  [1/{len(all_sections)+2}] 生成开头...")
+        chunks.append(self._generate_hook(topic, title, outline.hook, platform, style_instruction))
+
+        # 各小节
+        for i, section in enumerate(all_sections):
+            print(f"  [{i+2}/{len(all_sections)+2}] 生成「{section.get('title', '')}」...")
+            prev_tail = chunks[-1][-200:] if chunks else ""
+            material_hint = self._get_material_hint(material, i)
+            chunks.append(self._generate_section(
+                topic, title, section, prev_tail, all_sections,
+                platform, style_instruction, material_hint
+            ))
+
+        # 结尾
+        print(f"  [{len(all_sections)+2}/{len(all_sections)+2}] 生成结尾...")
+        prev_tail = chunks[-1][-200:] if chunks else ""
+        chunks.append(self._generate_ending(topic, title, outline.cta, outline.tags, prev_tail, platform, style_instruction))
+
+        return "\n\n".join(chunks)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Step 4b: 正文生成（流式模式 — 通过 SSE 推送进度）
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def generate_content_stream(
+        self,
+        topic: str,
+        outline: Outline,
+        platform: str = "wechat",
+        material: dict | None = None,
+        style_profile: StyleProfile | None = None,
+    ) -> Generator[dict, None, None]:
+        """流式生成正文，yield 进度事件供 SSE 推送"""
+        title = outline.selected_title or outline.title_candidates[0]
+        all_sections = outline.sections
+        chunks: list[str] = []
+
+        style_instruction = self._build_style_instruction(style_profile)
+
+        # 开头
+        yield {"type": "progress", "step": 1, "total": len(all_sections)+2, "label": "生成开头..."}
+        hook_text = self._generate_hook(topic, title, outline.hook, platform, style_instruction)
+        chunks.append(hook_text)
+        yield {"type": "chunk", "index": 0, "content": hook_text}
+
+        # 各小节
+        for i, section in enumerate(all_sections):
+            yield {"type": "progress", "step": i+2, "total": len(all_sections)+2,
+                   "label": f"生成「{section.get('title', '')}」..."}
+            prev_tail = chunks[-1][-200:] if chunks else ""
+            material_hint = self._get_material_hint(material, i)
+            sec_text = self._generate_section(
+                topic, title, section, prev_tail, all_sections,
+                platform, style_instruction, material_hint
+            )
+            chunks.append(sec_text)
+            yield {"type": "chunk", "index": i+1, "content": sec_text}
+
+        # 结尾
+        yield {"type": "progress", "step": len(all_sections)+2, "total": len(all_sections)+2,
+               "label": "生成结尾..."}
+        prev_tail = chunks[-1][-200:] if chunks else ""
+        end_text = self._generate_ending(topic, title, outline.cta, outline.tags, prev_tail, platform, style_instruction)
+        chunks.append(end_text)
+        yield {"type": "chunk", "index": len(all_sections)+1, "content": end_text}
+
+        # 完成
+        full_content = "\n\n".join(chunks)
+        validation = self.validator.validate(full_content, platform)
+        yield {"type": "done", "content": full_content, "word_count": len(full_content),
+               "score": validation.score, "passed": validation.passed,
+               "issue_count": len(validation.issues)}
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 内部方法：构建风格指令
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_style_instruction(self, style_profile: StyleProfile | None) -> str:
+        if not style_profile:
+            return ""
+        return f"""
 ## 写作风格（必须严格模仿）
 - 语调：{style_profile.tone}
 - 惯用词：{'、'.join(style_profile.vocabulary[:10])}
@@ -366,15 +469,25 @@ class Pipeline:
 - 标点：{style_profile.punctuation_habits}
 """
 
-        # ── 开头 ──
-        print(f"  [1/{len(all_sections)+2}] 生成开头...")
-        hook_prompt = f"""你是一位顶尖的{platform}写手。请为以下文章写一个抓人的开头。
+    def _get_material_hint(self, material: dict | None, index: int) -> str:
+        if not material:
+            return ""
+        gold = material.get("golden_sentences", [])
+        facts = material.get("core_facts", [])
+        relevant = (gold[index] if index < len(gold) else "") or (facts[index] if index < len(facts) else "")
+        if relevant:
+            return f"\n本节可用素材：{relevant}"
+        return ""
+
+    def _generate_hook(self, topic: str, title: str, hook_design: str,
+                       platform: str, style_instruction: str) -> str:
+        prompt = f"""你是一位顶尖的{platform}写手。请为以下文章写一个抓人的开头。
 
 ## 标题
 {title}
 
 ## 开头设计
-{outline.hook}
+{hook_design}
 
 ## 主题
 {topic}
@@ -387,24 +500,14 @@ class Pipeline:
 
         resp = self.llm.complete([
             Message("system", f"你是{platform}爆款写手，文笔流畅，开头必抓人。直接输出正文。"),
-            Message("user", hook_prompt),
+            Message("user", prompt),
         ], temperature=0.8)
-        chunks.append(resp.content.strip())
+        return resp.content.strip()
 
-        # ── 各小节 ──
-        for i, section in enumerate(all_sections):
-            print(f"  [{i+2}/{len(all_sections)+2}] 生成「{section.get('title', '')}」...")
-            prev_tail = chunks[-1][-200:] if chunks else ""
-
-            material_hint = ""
-            if material:
-                gold = material.get("golden_sentences", [])
-                facts = material.get("core_facts", [])
-                relevant = (gold[i] if i < len(gold) else "") or (facts[i] if i < len(facts) else "")
-                if relevant:
-                    material_hint = f"\n本节可用素材：{relevant}"
-
-            section_prompt = f"""继续写文章的下一部分。
+    def _generate_section(self, topic: str, title: str, section: dict,
+                          prev_tail: str, all_sections: list, platform: str,
+                          style_instruction: str, material_hint: str) -> str:
+        prompt = f"""继续写文章的下一部分。
 
 ## 标题
 {title}
@@ -427,29 +530,28 @@ class Pipeline:
 - 本节标题用加粗显示（**标题**）
 - 只输出正文，不要任何标注"""
 
-            resp = self.llm.complete([
-                Message("system", f"你是{platform}写手，擅长让段落之间自然过渡。直接输出正文。"),
-                Message("user", section_prompt),
-            ], temperature=0.8)
-            chunks.append(resp.content.strip())
+        resp = self.llm.complete([
+            Message("system", f"你是{platform}写手，擅长让段落之间自然过渡。直接输出正文。"),
+            Message("user", prompt),
+        ], temperature=0.8)
+        return resp.content.strip()
 
-        # ── 结尾 + CTA ──
-        print(f"  [{len(all_sections)+2}/{len(all_sections)+2}] 生成结尾...")
-        prev_tail = chunks[-1][-200:] if chunks else ""
-
-        ending_prompt = f"""写文章的结尾部分。
+    def _generate_ending(self, topic: str, title: str, cta: str,
+                         tags: list, prev_tail: str, platform: str,
+                         style_instruction: str) -> str:
+        prompt = f"""写文章的结尾部分。
 
 ## 标题
 {title}
 
 ## 结尾设计
-{outline.cta}
+{cta}
 
 ## 上文结尾
 ...{prev_tail}
 
 ## 标签
-{' '.join('#' + t for t in outline.tags)}
+{' '.join('#' + t for t in tags)}
 {style_instruction}
 ## 要求
 - 总结全文核心观点（1-2句）
@@ -459,14 +561,12 @@ class Pipeline:
 
         resp = self.llm.complete([
             Message("system", f"你是{platform}写手，擅长写出让人想转发的结尾。直接输出正文。"),
-            Message("user", ending_prompt),
+            Message("user", prompt),
         ], temperature=0.8)
-        chunks.append(resp.content.strip())
-
-        return "\n\n".join(chunks)
+        return resp.content.strip()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 4.5: 多轮修订（人机共创核心 — 用户反馈 → AI 修改）
+    # Step 4.5: 多轮修订
     # ─────────────────────────────────────────────────────────────────────────
 
     def revise_content(
@@ -477,17 +577,9 @@ class Pipeline:
         outline: Outline | None = None,
         platform: str = "wechat",
         style_profile: StyleProfile | None = None,
-        section_title: str = "",  # 如果指定，只修订该小节
+        section_title: str = "",
     ) -> str:
-        """根据用户反馈修订正文，支持全局修订和局部修订"""
-
-        style_instruction = ""
-        if style_profile:
-            style_instruction = f"""
-## 写作风格（修订时保持一致）
-- 语调：{style_profile.tone}
-- 惯用词：{'、'.join(style_profile.vocabulary[:10])}
-"""
+        style_instruction = self._build_style_instruction(style_profile)
 
         outline_context = ""
         if outline:
@@ -498,7 +590,6 @@ class Pipeline:
 """
 
         if section_title:
-            # ── 局部修订：只改指定小节 ──
             prompt = f"""你是一位资深的{platform}编辑。用户对文章的某个小节不满意，请根据反馈修改该小节，保持其他部分不变。
 
 ## 文章主题
@@ -520,7 +611,6 @@ class Pipeline:
 3. 保持整体字数大致不变（±20%）
 4. 直接输出修订后的完整全文，不要加任何标注或说明"""
         else:
-            # ── 全局修订 ──
             prompt = f"""你是一位资深的{platform}编辑。用户对文章不满意，请根据反馈修改全文。
 
 ## 文章主题
@@ -547,11 +637,13 @@ class Pipeline:
         return resp.content.strip()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 5: 排版输出（生成适配公众号编辑器的 HTML）
+    # Step 5: 排版输出
     # ─────────────────────────────────────────────────────────────────────────
 
-    def format_html(self, content: str, title: str, tags: list[str]) -> str:
-        """将 Markdown 正文转为公众号适配的 HTML 片段"""
+    def format_html(self, content: str, title: str, tags: list[str],
+                    template: str = "minimal") -> str:
+        """将 Markdown 正文转为公众号适配的 HTML 片段，支持模板选择"""
+        tpl = FORMAT_TEMPLATES.get(template, FORMAT_TEMPLATES["minimal"])
 
         prompt = f"""将以下文章正文转换为微信公众号编辑器兼容的 HTML 片段。
 
@@ -564,13 +656,16 @@ class Pipeline:
 ## 标签
 {', '.join(tags)}
 
+## 排版风格
+{tpl['name']}（{tpl['desc']}）
+
 ## 转换规则
-1. 段落用 <p style="margin:16px 0;line-height:1.8;font-size:15px;color:#333;"> 包裹
-2. 加粗文本用 <strong style="color:#1a1a1a;"> 包裹
-3. 小节标题用 <h3 style="margin:24px 0 12px;font-size:17px;font-weight:bold;color:#1a1a1a;"> 包裹
-4. 段落之间留白（margin）确保手机阅读舒适
-5. 重要金句可以用 <blockquote style="border-left:3px solid #e74c3c;padding:8px 16px;margin:16px 0;background:#f9f9f9;color:#555;font-size:14px;"> 包裹
-6. 最后加上标签区域
+1. 段落用 <p style="{tpl['p_style']}"> 包裹
+2. 加粗文本用 <strong style="{tpl['strong_style']}"> 包裹
+3. 小节标题用 <h3 style="{tpl['h3_style']}"> 包裹
+4. 段落之间留白确保手机阅读舒适
+5. 重要金句用 <blockquote style="{tpl['quote_style']}"> 包裹
+6. 标签用 <span style="{tpl['tag_style']}"> 包裹
 7. 只输出 HTML 片段，不要 <html><body> 等外层标签"""
 
         resp = self.llm.complete([
@@ -581,7 +676,141 @@ class Pipeline:
         return resp.content.strip()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 完整流程（一键走完，用于测试）
+    # 新功能：参考链接抓取
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def fetch_reference(url: str) -> dict:
+        """抓取参考链接内容，提取正文"""
+        import urllib.request
+        from readability import Document
+
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+
+        doc = Document(html)
+        title = doc.title()
+        readable = doc.summary()
+
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        h.ignore_images = True
+        h.body_width = 0
+        text = h.handle(readable).strip()
+
+        return {"url": url, "title": title, "text": text[:6000]}
+
+    def extract_material_from_urls(self, urls: list[str], topic: str) -> dict:
+        """从多个参考链接抓取内容并提取素材"""
+        combined = ""
+        for url in urls[:5]:
+            try:
+                ref = self.fetch_reference(url.strip())
+                combined += f"\n\n## 来源：{ref['title']}\n{ref['text']}"
+            except Exception as e:
+                combined += f"\n\n## 来源：{url}（抓取失败：{e}）"
+
+        if not combined.strip():
+            return {"core_facts": [], "key_opinions": [], "golden_sentences": [],
+                    "data_points": [], "controversial_angles": [], "hook_ideas": []}
+
+        return self.extract_material(combined, topic)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 新功能：图片建议
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def suggest_images(self, content: str, outline: Outline) -> list[dict]:
+        """在文章合适位置建议配图"""
+        sections = outline.sections
+        suggestions = []
+
+        # 开头建议一张封面/情感图
+        suggestions.append({
+            "position": "开头",
+            "after_text": content[:100] + "...",
+            "suggestion": "封面图/情感场景图",
+            "description": f"与「{outline.selected_title}」主题相关的高质量封面图"
+        })
+
+        # 每个小节建议一张
+        for i, sec in enumerate(sections):
+            suggestions.append({
+                "position": f"「{sec.get('title', '')}」段落后",
+                "after_text": sec.get('title', ''),
+                "suggestion": f"第{i+1}节配图",
+                "description": f"与「{sec.get('title', '')}」内容相关的配图，建议使用数据图表、案例截图或场景插图"
+            })
+
+        return suggestions
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 新功能：批量生成
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def generate_batch(
+        self,
+        topics: list[str],
+        platform: str = "wechat",
+        mode: str = "干货型",
+        style_profile: StyleProfile | None = None,
+    ) -> list[dict]:
+        """批量生成多篇文章的大纲+标题"""
+        results = []
+        for topic in topics[:10]:
+            try:
+                outline = self.generate_outline(
+                    topic=topic, platform=platform, mode=mode,
+                    style_profile=style_profile,
+                )
+                results.append({
+                    "topic": topic,
+                    "ok": True,
+                    "outline": _to_dict(outline),
+                })
+            except Exception as e:
+                results.append({
+                    "topic": topic,
+                    "ok": False,
+                    "error": str(e),
+                })
+        return results
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 新功能：SEO 关键词优化（头条专用）
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def optimize_seo(self, content: str, topic: str) -> dict:
+        """针对头条搜索推荐算法优化关键词"""
+        prompt = f"""分析以下文章，提供 SEO 优化建议（针对头条/百度搜索推荐）。
+
+## 主题
+{topic}
+
+## 文章内容（前2000字）
+{content[:2000]}
+
+请输出 JSON：
+{{
+  "primary_keyword": "核心关键词",
+  "secondary_keywords": ["相关词1", "相关词2", ...],
+  "suggested_title": "SEO 优化后的标题",
+  "keyword_density": "当前关键词密度评估",
+  "suggestions": ["优化建议1", "优化建议2", ...]
+}}"""
+
+        resp = with_retry(lambda: self.llm.complete([
+            Message("system", "你是 SEO 优化专家，擅长新媒体内容的搜索优化。只输出合法 JSON。"),
+            Message("user", prompt),
+        ], temperature=0.3))
+
+        return parse_json(resp.content)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 完整流程
     # ─────────────────────────────────────────────────────────────────────────
 
     def run_full(
@@ -593,15 +822,12 @@ class Pipeline:
         style_profile: StyleProfile | None = None,
         extra_requirements: str = "",
     ) -> Article:
-        """完整管线：素材→大纲→正文→验证→排版"""
-
         article_id = f"art_{uuid.uuid4().hex[:8]}"
         print(f"\n{'='*60}")
         print(f"📝 开始生成：{topic}")
         print(f"   平台：{platform} | 类型：{mode}")
         print(f"{'='*60}")
 
-        # Step 1: 素材清洗
         material = None
         if source_text.strip():
             print("\n🔍 Step 1: 提取素材...")
@@ -609,7 +835,6 @@ class Pipeline:
             print(f"   提取到 {len(material.get('core_facts', []))} 个事实, "
                   f"{len(material.get('golden_sentences', []))} 条金句")
 
-        # Step 2: 大纲生成
         print("\n📋 Step 2: 生成大纲...")
         outline = self.generate_outline(
             topic=topic, platform=platform, mode=mode,
@@ -619,7 +844,6 @@ class Pipeline:
         print(f"   标题：{outline.selected_title}")
         print(f"   结构：{' → '.join(s.get('title', '') for s in outline.sections)}")
 
-        # Step 3: 正文生成
         print("\n✍️  Step 3: 分块生成正文...")
         content = self.generate_content(
             topic=topic, outline=outline, platform=platform,
@@ -628,7 +852,6 @@ class Pipeline:
         word_count = len(content)
         print(f"   生成完成：{word_count} 字")
 
-        # Step 4: 写后验证
         print("\n🔍 Step 4: 写后验证...")
         validation = self.validator.validate(content, platform)
         print(f"   得分：{validation.score}/100 | "
@@ -637,7 +860,6 @@ class Pipeline:
             for issue in validation.issues[:5]:
                 print(f"   [{issue.severity}] {issue.description}")
 
-        # Step 5: 排版
         print("\n📐 Step 5: 生成排版...")
         html = self.format_html(content, outline.selected_title, outline.tags)
 
@@ -657,7 +879,6 @@ class Pipeline:
             word_count=word_count,
         )
 
-        # 保存
         self._save_article(article)
 
         print(f"\n{'='*60}")
@@ -733,7 +954,6 @@ class Pipeline:
 # ── 工具函数 ──
 
 def _to_dict(obj):
-    """递归 dataclass → dict"""
     if hasattr(obj, '__dataclass_fields__'):
         return {k: _to_dict(v) for k, v in obj.__dict__.items()}
     if isinstance(obj, list):

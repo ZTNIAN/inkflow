@@ -1,4 +1,4 @@
-"""写后验证器 — 去AI味 + 敏感词 + 平台规范检测"""
+"""写后验证器 — 去AI味 + 敏感词 + 平台规范检测 v2"""
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
@@ -32,6 +32,14 @@ FORBIDDEN_PHRASES = [
     "综上所述", "总而言之", "由此可见", "不难发现",
 ]
 
+# ── AI 常用连接词/套话 ──
+AI_FILLER = [
+    "首先，", "其次，", "最后，", "另外，", "此外，",
+    "值得注意的是", "需要指出的是", "不可否认",
+    "在这个过程中", "在当今社会", "随着...的发展",
+    "让我们一起来看看", "接下来让我们",
+]
+
 # ── 元叙事 / 说教 ──
 META_PATTERNS = [
     (r"核心动机", "元叙事"), (r"叙事节奏", "元叙事"),
@@ -57,6 +65,14 @@ SENSITIVE_WORDS = [
     "最好", "第一", "绝对", "100%", "保证", "永远", "万能",
     "治愈", "根治", "特效", "神药", "偏方",
     "暴富", "躺赚", "零风险", "稳赚", "割韭菜",
+]
+
+# ── 重复表达检测 ──
+REPETITIVE_PATTERNS = [
+    (r"重要(?:的)?(?:是|事情|事情是)", "重复表达"),
+    (r"不得不说", "AI 套话"),
+    (r"说白了", "过度口语化"),
+    (r"说到底", "AI 套话"),
 ]
 
 
@@ -135,6 +151,35 @@ class Validator:
                 consecutive = 0
         if max_consecutive >= 6:
             issues.append(Issue("CONSECUTIVE_LE", "warning", f"连续{max_consecutive}句含「了」字"))
+
+        # 10. AI 填充词密度过高
+        filler_count = sum(1 for f in AI_FILLER if f in content)
+        if filler_count >= 3:
+            issues.append(Issue("AI_FILLER", "warning",
+                f"AI 套话/连接词过多（{filler_count}处），建议精简"))
+
+        # 11. 重复表达
+        for pat, label in REPETITIVE_PATTERNS:
+            m = re.findall(pat, content)
+            if len(m) >= 2:
+                issues.append(Issue("REPETITIVE", "warning",
+                    f"{label}：「{m[0]}」出现 {len(m)} 次"))
+
+        # 12. 感叹号过多
+        excl_count = content.count("！") + content.count("!")
+        if excl_count > 5:
+            issues.append(Issue("EXCLAMATION", "warning",
+                f"感叹号过多（{excl_count}个），公众号读者不喜欢大喊大叫"))
+
+        # 13. 段落缺少变化（全是短段或全是长段）
+        if paras and len(paras) >= 4:
+            lengths = [len(p) for p in paras]
+            avg = sum(lengths) / len(lengths)
+            short_count = sum(1 for l in lengths if l < avg * 0.4)
+            long_count = sum(1 for l in lengths if l > avg * 2.5)
+            if short_count == 0 and long_count == 0 and len(set(lengths)) <= 2:
+                issues.append(Issue("MONOTONE", "warning",
+                    "段落长度过于单调，建议长短交替增加节奏感"))
 
         error_count = sum(1 for i in issues if i.severity == "error")
         warning_count = sum(1 for i in issues if i.severity == "warning")

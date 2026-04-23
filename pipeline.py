@@ -1167,6 +1167,7 @@ class Pipeline:
                 "score": data.get("validation", {}).get("score"),
                 "title": data.get("outline", {}).get("selected_title"),
                 "created_at": data.get("created_at"),
+                "tags": data.get("tags", []),
             })
         return articles
 

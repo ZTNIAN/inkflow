@@ -157,6 +157,69 @@ def list_articles():
     return Pipeline.list_articles()
 
 
+# ── 写作统计 ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/stats")
+def get_stats():
+    art_dir = BASE_DIR / "data" / "articles"
+    if not art_dir.exists():
+        return {"total": 0, "total_words": 0, "avg_score": 0, "by_platform": {},
+                "by_mode": {}, "by_month": {}, "top_topics": []}
+
+    articles = []
+    for f in art_dir.glob("*.json"):
+        try:
+            articles.append(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+
+    if not articles:
+        return {"total": 0, "total_words": 0, "avg_score": 0, "by_platform": {},
+                "by_mode": {}, "by_month": {}, "top_topics": []}
+
+    total = len(articles)
+    total_words = sum(a.get("word_count", 0) for a in articles)
+    scores = [a.get("validation", {}).get("score", 0) for a in articles if a.get("validation", {}).get("score")]
+    avg_score = round(sum(scores) / len(scores), 1) if scores else 0
+
+    # 按平台
+    by_platform = {}
+    for a in articles:
+        p = a.get("platform", "unknown")
+        by_platform[p] = by_platform.get(p, 0) + 1
+
+    # 按类型
+    by_mode = {}
+    for a in articles:
+        m = a.get("mode", "unknown")
+        by_mode[m] = by_mode.get(m, 0) + 1
+
+    # 按月份
+    by_month = {}
+    for a in articles:
+        dt = a.get("created_at", "")
+        if dt and len(dt) >= 7:
+            month = dt[:7]
+            by_month[month] = by_month.get(month, 0) + 1
+
+    # 最近文章
+    recent = sorted(articles, key=lambda x: x.get("created_at", ""), reverse=True)[:5]
+    recent_list = [{"id": a.get("id"), "topic": a.get("topic", ""),
+                    "word_count": a.get("word_count", 0),
+                    "score": a.get("validation", {}).get("score"),
+                    "created_at": a.get("created_at", "")} for a in recent]
+
+    return {
+        "total": total,
+        "total_words": total_words,
+        "avg_score": avg_score,
+        "by_platform": by_platform,
+        "by_mode": by_mode,
+        "by_month": by_month,
+        "recent": recent_list,
+    }
+
+
 @app.get("/api/articles/{article_id}")
 def get_article(article_id: str):
     try:
@@ -860,6 +923,7 @@ class SaveArticleReq(BaseModel):
     content: str = ""
     html: str = ""
     revision_history: list = []
+    tags: list[str] = []
 
 
 @app.post("/api/articles/save")
@@ -881,6 +945,7 @@ def save_article(req: SaveArticleReq):
         "word_count": len(req.content),
         "created_at": now.isoformat(),
         "revision_history": req.revision_history,
+        "tags": req.tags,
     }
 
     art_dir = BASE_DIR / "data" / "articles"
@@ -907,6 +972,51 @@ def save_article(req: SaveArticleReq):
 
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "id": article_id}
+
+
+# ── 标签管理 ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/tags")
+def list_tags():
+    art_dir = BASE_DIR / "data" / "articles"
+    if not art_dir.exists():
+        return []
+    tags_count = {}
+    for f in art_dir.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            for t in data.get("tags", []):
+                tags_count[t] = tags_count.get(t, 0) + 1
+        except Exception:
+            pass
+    return [{"name": k, "count": v} for k, v in sorted(tags_count.items(), key=lambda x: -x[1])]
+
+
+@app.get("/api/articles/tag/{tag}")
+def list_articles_by_tag(tag: str):
+    art_dir = BASE_DIR / "data" / "articles"
+    if not art_dir.exists():
+        return []
+    articles = []
+    for f in sorted(art_dir.glob("*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if tag in data.get("tags", []):
+                articles.append({
+                    "id": data.get("id"),
+                    "topic": data.get("topic"),
+                    "platform": data.get("platform"),
+                    "mode": data.get("mode"),
+                    "status": data.get("status"),
+                    "word_count": data.get("word_count"),
+                    "score": data.get("validation", {}).get("score"),
+                    "title": data.get("outline", {}).get("selected_title"),
+                    "created_at": data.get("created_at"),
+                    "tags": data.get("tags", []),
+                })
+        except Exception:
+            pass
+    return articles
 
 
 # ── 文章版本历史 ──────────────────────────────────────────────────────────────

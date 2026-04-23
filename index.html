@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 写作工坊 — 公众号 / 头条文章生成器</title>
+<style>
+:root{--bg:#0f1117;--bg2:#181b23;--bg3:#1e222d;--surface:#232836;--surface2:#2a3040;
+--border:#333a4a;--text:#e8ecf2;--text2:#9ca3b0;--text3:#6b7280;
+--blue:#4f8ff7;--blue-bg:#1a2a4a;--green:#34d399;--green-bg:#0d3326;
+--red:#f87171;--red-bg:#3b1515;--yellow:#fbbf24;--yellow-bg:#3b2f0a;
+--purple:#a78bfa;--radius:10px;--shadow:0 2px 12px rgba(0,0,0,.3)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+font-size:14px;color:var(--text);background:var(--bg);line-height:1.6;height:100vh;overflow:hidden}
+
+/* ── 顶部导航 ── */
+.topbar{height:52px;background:var(--bg2);border-bottom:1px solid var(--border);
+display:flex;align-items:center;padding:0 24px;gap:16px;position:fixed;top:0;left:0;right:0;z-index:100}
+.brand{font-size:17px;font-weight:700;color:var(--text)}
+.brand span{color:var(--blue)}
+.topbar-right{margin-left:auto;display:flex;gap:10px;align-items:center}
+
+/* ── 主布局 ── */
+.main{position:fixed;top:52px;left:0;right:0;bottom:0;display:flex;overflow:hidden}
+
+/* ── 左侧面板 ── */
+.sidebar{width:280px;background:var(--bg2);border-right:1px solid var(--border);
+display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-header{padding:16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text2)}
+.sidebar-list{flex:1;overflow-y:auto;padding:8px}
+.sidebar-item{padding:12px 14px;border-radius:8px;cursor:pointer;margin-bottom:4px;
+border:1px solid transparent;transition:all .15s}
+.sidebar-item:hover{background:var(--surface);border-color:var(--border)}
+.sidebar-item.active{background:var(--blue-bg);border-color:rgba(79,143,247,.3)}
+.sidebar-item .item-title{font-size:13px;font-weight:500;margin-bottom:4px;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-item .item-meta{font-size:11px;color:var(--text3);display:flex;gap:8px}
+
+/* ── 右侧内容区 ── */
+.content{flex:1;overflow-y:auto;padding:24px 32px}
+
+/* ── 卡片 ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+padding:20px;margin-bottom:16px}
+.card-title{font-size:15px;font-weight:600;margin-bottom:14px;padding-bottom:10px;
+border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+
+/* ── 按钮 ── */
+.btn{font-size:13px;padding:8px 18px;border:1px solid var(--border);border-radius:8px;
+background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s;
+font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--surface2);border-color:var(--text3)}
+.btn-primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
+.btn-primary:hover{background:#3d7de5}
+.btn-success{background:#059669;border-color:#059669;color:#fff}
+.btn-success:hover{background:#047857}
+.btn-danger{background:transparent;border-color:var(--red);color:var(--red)}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-group{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ── 表单 ── */
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:6px}
+.form-input,.form-select,.form-textarea{width:100%;padding:9px 12px;background:var(--bg);
+border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit}
+.form-input:focus,.form-select:focus,.form-textarea:focus{outline:none;border-color:var(--blue)}
+.form-textarea{min-height:100px;resize:vertical;line-height:1.6}
+.form-hint{font-size:11px;color:var(--text3);margin-top:4px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+
+/* ── 步骤条 ── */
+.steps{display:flex;gap:4px;margin-bottom:20px;padding:12px 16px;background:var(--bg2);
+border-radius:var(--radius);border:1px solid var(--border);overflow-x:auto}
+.step{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;
+font-size:12px;color:var(--text3);cursor:pointer;white-space:nowrap;border:1px solid transparent;transition:all .15s}
+.step:hover{background:var(--surface);color:var(--text2)}
+.step.active{background:var(--blue-bg);color:var(--blue);border-color:rgba(79,143,247,.3);font-weight:500}
+.step.done{color:var(--green)}
+.step-num{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--border);
+display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600}
+.step.active .step-num{background:var(--blue);border-color:var(--blue);color:#fff}
+.step.done .step-num{background:var(--green);border-color:var(--green);color:#fff}
+.step-arrow{color:var(--border);margin:0 2px}
+
+/* ── 标题候选 ── */
+.title-candidate{padding:12px 16px;background:var(--bg);border:1px solid var(--border);
+border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px}
+.title-candidate:hover{border-color:var(--blue)}
+.title-candidate.selected{border-color:var(--green);background:var(--green-bg)}
+.title-candidate .title-text{flex:1;font-size:14px}
+.title-candidate .title-score{font-size:12px;color:var(--yellow);font-weight:600;white-space:nowrap}
+
+/* ── 大纲小节 ── */
+.section-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+padding:14px 16px;margin-bottom:8px;cursor:grab;transition:all .15s}
+.section-card:hover{border-color:var(--blue)}
+.section-card .section-title{font-size:13px;font-weight:600;margin-bottom:6px}
+.section-card .section-points{font-size:12px;color:var(--text2)}
+.section-card .section-budget{font-size:11px;color:var(--text3);margin-top:4px}
+
+/* ── 标签 ── */
+.tag{display:inline-block;padding:3px 10px;background:var(--blue-bg);color:var(--blue);
+border-radius:4px;font-size:11px;margin:2px 4px 2px 0}
+
+/* ── 预览 ── */
+.preview-box{background:#fff;color:#333;padding:24px;border-radius:8px;
+font-size:15px;line-height:1.8;max-height:600px;overflow-y:auto}
+.preview-box h3{font-size:17px;font-weight:bold;color:#1a1a1a;margin:24px 0 12px}
+.preview-box p{margin:16px 0}
+.preview-box blockquote{border-left:3px solid #e74c3c;padding:8px 16px;margin:16px 0;
+background:#f9f9f9;color:#555;font-size:14px}
+
+/* ── 验证结果 ── */
+.validation-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;
+border-radius:6px;font-size:12px;font-weight:500}
+.validation-badge.pass{background:var(--green-bg);color:var(--green)}
+.validation-badge.fail{background:var(--red-bg);color:var(--red)}
+.issue-item{padding:8px 12px;background:var(--bg);border-radius:6px;margin-bottom:6px;
+font-size:12px;border-left:3px solid var(--border)}
+.issue-item.error{border-color:var(--red)}
+.issue-item.warning{border-color:var(--yellow)}
+
+/* ── 加载 ── */
+.loading{display:flex;align-items:center;gap:10px;color:var(--text2);padding:20px}
+.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--blue);
+border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Tab ── */
+.tab-bar{display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.tab{padding:10px 16px;font-size:13px;cursor:pointer;color:var(--text3);
+border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:500}
+
+/* ── 空状态 ── */
+.empty{text-align:center;padding:60px 20px;color:var(--text3)}
+.empty-icon{font-size:48px;margin-bottom:16px}
+.empty-text{font-size:14px;margin-bottom:20px}
+
+/* ── 通知 ── */
+.toast{position:fixed;top:64px;right:24px;padding:12px 20px;border-radius:8px;
+font-size:13px;z-index:200;animation:slideIn .3s ease;box-shadow:var(--shadow)}
+.toast.success{background:var(--green-bg);color:var(--green);border:1px solid var(--green)}
+.toast.error{background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
+@keyframes slideIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:150;
+display:flex;align-items:center;justify-content:center}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto;box-shadow:var(--shadow)}
+.modal-title{font-size:16px;font-weight:600;margin-bottom:16px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+</style>
+</head>
+<body>
+
+<!-- 顶部导航 -->
+<div class="topbar">
+  <div class="brand">✍️ <span>AI 写作工坊</span></div>
+  <div class="topbar-right">
+    <button class="btn btn-sm" onclick="showSettings()">⚙️ 设置</button>
+    <button class="btn btn-primary btn-sm" onclick="showNewArticle()">+ 新文章</button>
+  </div>
+</div>
+
+<!-- 主布局 -->
+<div class="main">
+  <!-- 左侧：文章列表 -->
+  <div class="sidebar">
+    <div class="sidebar-header">📝 文章列表</div>
+    <div class="sidebar-list" id="articleList">
+      <div class="empty" style="padding:30px 10px">
+        <div style="font-size:28px;margin-bottom:8px">📄</div>
+        <div style="font-size:12px">还没有文章<br>点击「+ 新文章」开始</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧：内容区 -->
+  <div class="content" id="contentArea">
+    <!-- 欢迎页 -->
+    <div id="welcomeView">
+      <div class="empty">
+        <div class="empty-icon">✍️</div>
+        <div class="empty-text">AI 写作工坊<br>公众号 / 头条文章一键生成</div>
+        <button class="btn btn-primary" onclick="showNewArticle()">+ 创建第一篇文章</button>
+      </div>
+
+      <div style="max-width:600px;margin:40px auto 0">
+        <div class="card">
+          <div class="card-title">🚀 使用流程</div>
+          <div style="font-size:13px;color:var(--text2);line-height:2">
+            <div><strong style="color:var(--text)">Step 1</strong> — 输入主题，选择平台和文章类型</div>
+            <div><strong style="color:var(--text)">Step 2</strong> — （可选）粘贴对标素材，AI 提取核心信息</div>
+            <div><strong style="color:var(--text)">Step 3</strong> — AI 生成大纲 + 标题候选，<span style="color:var(--green)">你来选择和修改</span></div>
+            <div><strong style="color:var(--text)">Step 4</strong> — AI 分块生成正文，自动衔接</div>
+            <div><strong style="color:var(--text)">Step 5</strong> — 写后验证（去AI味 + 敏感词），一键排版导出</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">💡 支持的模式</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px">
+            <div><strong style="color:var(--blue)">公众号</strong><br><span style="color:var(--text2)">深度长文 1500-3000 字<br>情绪共鸣 + 排版留白</span></div>
+            <div><strong style="color:var(--yellow)">头条</strong><br><span style="color:var(--text2)">信息流图文 800-2000 字<br>争议点 + 接地气语言</span></div>
+            <div><strong style="color:var(--green)">干货型</strong><br><span style="color:var(--text2)">方法论 / 步骤清单</span></div>
+            <div><strong style="color:var(--red)">争议型</strong><br><span style="color:var(--text2)">反常识 / 引发讨论</span></div>
+            <div><strong style="color:var(--purple)">故事型</strong><br><span style="color:var(--text2)">案例切入 / 情感共鸣</span></div>
+            <div><strong style="color:var(--text2)">测评型</strong><br><span style="color:var(--text2)">对比分析 / 帮决策</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文章编辑页 -->
+    <div id="articleView" style="display:none">
+      <!-- 步骤条 -->
+      <div class="steps" id="stepsBar">
+        <div class="step active" data-step="1" onclick="goStep(1)">
+          <div class="step-num">1</div><span>选题</span>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step" data-step="2" onclick="goStep(2)">
+          <div class="step-num">2</div><span>素材</span>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step" data-step="3" onclick="goStep(3)">
+          <div class="step-num">3</div><span>大纲</span>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step" data-step="4" onclick="goStep(4)">
+          <div class="step-num">4</div><span>正文</span>
+        </div>
+        <div class="step-arrow">→</div>
+        <div class="step" data-step="5" onclick="goStep(5)">
+          <div class="step-num">5</div><span>导出</span>
+        </div>
+      </div>
+
+      <!-- Step 1: 选题 -->
+      <div class="step-panel" id="step1">
+        <div class="card">
+          <div class="card-title">📝 文章选题</div>
+          <div class="form-group">
+            <label class="form-label">主题 / 选题</label>
+            <input class="form-input" id="topicInput" placeholder="例：为什么恋爱中的女生越来越「作」？">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">发布平台</label>
+              <select class="form-select" id="platformSelect">
+                <option value="wechat">公众号（1500-3000字）</option>
+                <option value="toutiao">头条（800-2000字）</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">文章类型</label>
+              <select class="form-select" id="modeSelect">
+                <option value="干货型">干货型（方法论 / 清单）</option>
+                <option value="争议型">争议型（反常识 / 讨论）</option>
+                <option value="故事型">故事型（案例 / 共鸣）</option>
+                <option value="测评型">测评型（对比 / 决策）</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">额外要求（可选）</label>
+            <input class="form-input" id="extraInput" placeholder="例：要引用心理学研究，语气要犀利">
+          </div>
+          <div class="form-group">
+            <label class="form-label">写作风格</label>
+            <select class="form-select" id="styleSelect">
+              <option value="">默认风格</option>
+            </select>
+            <div class="form-hint">可在设置中上传样本文章，克隆你的写作风格</div>
+          </div>
+        </div>
+        <div class="btn-group">
+          <button class="btn" onclick="goStep(2)">下一步：素材 →</button>
+          <button class="btn btn-primary" onclick="quickGenerate()">⚡ 一键生成（跳过素材）</button>
+        </div>
+      </div>
+
+      <!-- Step 2: 素材 -->
+      <div class="step-panel" id="step2" style="display:none">
+        <div class="card">
+          <div class="card-title">📚 对标素材（可选）</div>
+          <div class="form-group">
+            <label class="form-label">粘贴对标文章 / 参考资料</label>
+            <textarea class="form-textarea" id="sourceInput" rows="10"
+              placeholder="将对标文章的正文粘贴在这里，AI 会提取核心事实、观点和金句用于写作..."></textarea>
+            <div class="form-hint">支持纯文本粘贴。粘贴 1-3 篇对标文章效果最佳。</div>
+          </div>
+          <div class="btn-group">
+            <button class="btn" onclick="goStep(3)">跳过，直接到大纲 →</button>
+            <button class="btn btn-primary" onclick="extractMaterial()">🔍 提取素材要点</button>
+          </div>
+        </div>
+        <div id="materialResult" style="display:none">
+          <div class="card">
+            <div class="card-title">✅ 已提取的素材要点</div>
+            <div id="materialContent" style="font-size:13px;color:var(--text2)"></div>
+          </div>
+          <button class="btn" onclick="goStep(3)">下一步：生成大纲 →</button>
+        </div>
+      </div>
+
+      <!-- Step 3: 大纲（人机共创） -->
+      <div class="step-panel" id="step3" style="display:none">
+        <div id="outlineLoading" style="display:none">
+          <div class="loading"><div class="spinner"></div>正在生成大纲和标题候选...</div>
+        </div>
+        <div id="outlineContent" style="display:none">
+          <!-- 标题候选 -->
+          <div class="card">
+            <div class="card-title">🎯 标题候选（点击选择）</div>
+            <div id="titleCandidates"></div>
+            <div style="margin-top:10px">
+              <button class="btn btn-sm" onclick="moreTitles()">🔄 再生成几个标题</button>
+              <button class="btn btn-sm" onclick="editTitle()">✏️ 自定义标题</button>
+            </div>
+          </div>
+
+          <!-- 大纲结构 -->
+          <div class="card">
+            <div class="card-title">📋 文章结构（可拖拽调整）</div>
+            <div class="form-group">
+              <label class="form-label">开头钩子</label>
+              <textarea class="form-textarea" id="hookEditor" rows="3" style="min-height:60px"></textarea>
+            </div>
+            <div id="sectionsEditor"></div>
+            <div class="form-group">
+              <label class="form-label">结尾行动号召（CTA）</label>
+              <textarea class="form-textarea" id="ctaEditor" rows="2" style="min-height:50px"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">标签</label>
+              <input class="form-input" id="tagsEditor" placeholder="用逗号分隔，如：恋爱心理,两性关系,情感">
+            </div>
+          </div>
+
+          <div class="btn-group">
+            <button class="btn" onclick="regenerateOutline()">🔄 重新生成大纲</button>
+            <button class="btn btn-primary" onclick="goStep(4); generateContent()">✍️ 确认大纲，开始写正文</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: 正文 -->
+      <div class="step-panel" id="step4" style="display:none">
+        <div id="contentLoading" style="display:none">
+          <div class="loading"><div class="spinner"></div><span id="contentProgress">正在生成正文...</span></div>
+        </div>
+        <div id="contentResult" style="display:none">
+          <div class="card">
+            <div class="card-title">✍️ 正文内容（可编辑）</div>
+            <textarea class="form-textarea" id="contentEditor" rows="25"
+              style="min-height:400px;font-size:14px;line-height:1.8"></textarea>
+            <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+              <span class="form-hint" id="wordCount"></span>
+              <button class="btn btn-sm" onclick="revalidate()">🔍 重新验证</button>
+            </div>
+          </div>
+          <div id="validationResult"></div>
+          <div class="btn-group">
+            <button class="btn" onclick="generateContent()">🔄 重新生成正文</button>
+            <button class="btn btn-primary" onclick="goStep(5)">下一步：排版导出 →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5: 导出 -->
+      <div class="step-panel" id="step5" style="display:none">
+        <div class="tab-bar">
+          <div class="tab active" onclick="switchExportTab('preview', this)">📱 预览</div>
+          <div class="tab" onclick="switchExportTab('html', this)">🔧 HTML 代码</div>
+          <div class="tab" onclick="switchExportTab('text', this)">📝 纯文本</div>
+        </div>
+
+        <div id="exportPreview" class="card" style="padding:0;overflow:hidden">
+          <div class="preview-box" id="previewBox"></div>
+        </div>
+        <div id="exportHtml" style="display:none">
+          <div class="card">
+            <textarea class="form-textarea" id="htmlOutput" rows="20" readonly
+              style="font-family:monospace;font-size:12px"></textarea>
+          </div>
+        </div>
+        <div id="exportText" style="display:none">
+          <div class="card">
+            <textarea class="form-textarea" id="textOutput" rows="20" readonly
+              style="font-size:14px;line-height:1.8"></textarea>
+          </div>
+        </div>
+
+        <div class="btn-group" style="margin-top:12px">
+          <button class="btn btn-primary" onclick="formatAndPreview()">📐 生成排版</button>
+          <button class="btn" onclick="copyToClipboard('html')">📋 复制 HTML</button>
+          <button class="btn" onclick="copyToClipboard('text')">📋 复制纯文本</button>
+          <button class="btn btn-success" onclick="saveArticle()">💾 保存文章</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════════════════════
+let currentArticle = {
+  id: '', topic: '', platform: 'wechat', mode: '干货型',
+  sourceText: '', material: null, styleProfileId: '',
+  outline: null, content: '', html: '', validation: null
+};
+let currentStep = 1;
+let styles = [];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════════════════════
+window.onload = () => { loadArticles(); loadStyles(); };
+
+async function loadArticles() {
+  try {
+    const resp = await fetch('/api/articles');
+    const articles = await resp.json();
+    const list = document.getElementById('articleList');
+    if (!articles.length) {
+      list.innerHTML = '<div class="empty" style="padding:30px 10px"><div style="font-size:28px;margin-bottom:8px">📄</div><div style="font-size:12px">还没有文章</div></div>';
+      return;
+    }
+    list.innerHTML = articles.map(a => `
+      <div class="sidebar-item" onclick="loadArticle('${a.id}')">
+        <div class="item-title">${a.title || a.topic}</div>
+        <div class="item-meta">
+          <span>${a.platform === 'wechat' ? '📱公众号' : '📰头条'}</span>
+          <span>${a.word_count || 0}字</span>
+          <span>${a.score ? '得分'+a.score : ''}</span>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function loadStyles() {
+  try {
+    const resp = await fetch('/api/styles');
+    styles = await resp.json();
+    const sel = document.getElementById('styleSelect');
+    sel.innerHTML = '<option value="">默认风格</option>' +
+      styles.map(s => `<option value="${s.id}">${s.name}（${s.tone}）</option>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 导航
+// ═══════════════════════════════════════════════════════════════════════════
+function showNewArticle() {
+  currentArticle = { id: '', topic: '', platform: 'wechat', mode: '干货型',
+    sourceText: '', material: null, styleProfileId: '', outline: null, content: '', html: '' };
+  currentStep = 1;
+  document.getElementById('welcomeView').style.display = 'none';
+  document.getElementById('articleView').style.display = 'block';
+  showStep(1);
+  document.getElementById('topicInput').focus();
+}
+
+async function loadArticle(id) {
+  try {
+    const resp = await fetch(`/api/articles/${id}`);
+    const data = await resp.json();
+    currentArticle = {
+      id: data.id, topic: data.topic, platform: data.platform, mode: data.mode,
+      sourceText: data.source_text || '', material: null, styleProfileId: data.style_profile_id || '',
+      outline: data.outline, content: data.content, html: data.html,
+      validation: data.validation
+    };
+    document.getElementById('welcomeView').style.display = 'none';
+    document.getElementById('articleView').style.display = 'block';
+    // 跳到正文或导出步骤
+    if (data.content) {
+      document.getElementById('contentEditor').value = data.content;
+      document.getElementById('wordCount').textContent = `${data.content.length} 字`;
+      if (data.validation) showValidation(data.validation);
+      if (data.html) {
+        document.getElementById('previewBox').innerHTML = data.html;
+        document.getElementById('htmlOutput').value = data.html;
+        document.getElementById('textOutput').value = data.content;
+      }
+      currentStep = data.html ? 5 : 4;
+    } else if (data.outline) {
+      currentStep = 3;
+      renderOutline(data.outline);
+    } else {
+      currentStep = 1;
+    }
+    showStep(currentStep);
+  } catch(e) { toast('加载失败: ' + e.message, 'error'); }
+}
+
+function goStep(n) {
+  if (n > currentStep + 1) return; // 不能跳太远
+  currentStep = n;
+  showStep(n);
+  if (n === 3 && !currentArticle.outline) generateOutline();
+}
+
+function showStep(n) {
+  document.querySelectorAll('.step-panel').forEach(p => p.style.display = 'none');
+  document.getElementById(`step${n}`).style.display = 'block';
+  document.querySelectorAll('.step').forEach(s => {
+    const sn = parseInt(s.dataset.step);
+    s.classList.toggle('active', sn === n);
+    s.classList.toggle('done', sn < n);
+  });
+}
+
+function showSettings() {
+  fetch('/api/settings').then(r => r.json()).then(s => {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal">
+        <div class="modal-title">⚙️ 设置</div>
+        <div class="form-group">
+          <label class="form-label">DeepSeek API Key</label>
+          <input class="form-input" id="settKey" value="${s.deepseek_api_key}" placeholder="sk-...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Base URL</label>
+          <input class="form-input" id="settUrl" value="${s.deepseek_base_url}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">模型</label>
+          <input class="form-input" id="settModel" value="${s.deepseek_model}">
+        </div>
+        <div class="card-title" style="margin-top:16px">🎨 风格克隆</div>
+        <div class="form-group">
+          <label class="form-label">上传样本文章（.txt / .md）</label>
+          <input type="file" id="styleFiles" multiple accept=".txt,.md,.text" style="font-size:12px;color:var(--text2)">
+          <div class="form-hint">上传 3-5 篇你写过的文章，AI 会提取你的写作风格</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">风格名称</label>
+          <input class="form-input" id="styleName" value="我的风格" placeholder="如：毒舌温暖风">
+        </div>
+        <button class="btn btn-sm" onclick="extractStyle()" id="extractStyleBtn">🔍 提取风格</button>
+        <div id="styleList" style="margin-top:12px"></div>
+        <div class="modal-actions">
+          <button class="btn" onclick="this.closest('.modal-overlay').remove()">取消</button>
+          <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    renderStyleList();
+  });
+}
+
+function renderStyleList() {
+  const el = document.getElementById('styleList');
+  if (!styles.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-top:8px">暂无已保存的风格</div>'; return; }
+  el.innerHTML = styles.map(s => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)">
+      <span style="flex:1;color:var(--text)">${s.name} <span style="color:var(--text3)">— ${s.tone}</span></span>
+      <button class="btn btn-sm btn-danger" onclick="deleteStyle('${s.id}')">删除</button>
+    </div>
+  `).join('');
+}
+
+async function saveSettings() {
+  const key = document.getElementById('settKey').value;
+  const url = document.getElementById('settUrl').value;
+  const model = document.getElementById('settModel').value;
+  await fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ deepseek_api_key: key, deepseek_base_url: url, deepseek_model: model })
+  });
+  toast('设置已保存');
+  document.querySelector('.modal-overlay').remove();
+}
+
+async function extractStyle() {
+  const files = document.getElementById('styleFiles').files;
+  const name = document.getElementById('styleName').value || '我的风格';
+  if (!files.length) { toast('请先上传样本文件', 'error'); return; }
+  const btn = document.getElementById('extractStyleBtn');
+  btn.disabled = true; btn.textContent = '提取中...';
+  const fd = new FormData();
+  fd.append('name', name);
+  for (const f of files) fd.append('files', f);
+  try {
+    const resp = await fetch('/api/styles/extract', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.ok) { toast('风格提取成功！'); styles.push(data.profile); renderStyleList(); loadStyles(); }
+    else toast('提取失败: ' + data.error, 'error');
+  } catch(e) { toast('提取失败: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '🔍 提取风格';
+}
+
+async function deleteStyle(id) {
+  await fetch(`/api/styles/${id}`, { method: 'DELETE' });
+  styles = styles.filter(s => s.id !== id);
+  renderStyleList(); loadStyles();
+  toast('已删除');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1: 选题
+// ═══════════════════════════════════════════════════════════════════════════
+function getFormData() {
+  currentArticle.topic = document.getElementById('topicInput').value.trim();
+  currentArticle.platform = document.getElementById('platformSelect').value;
+  currentArticle.mode = document.getElementById('modeSelect').value;
+  currentArticle.styleProfileId = document.getElementById('styleSelect').value;
+  currentArticle.extraRequirements = document.getElementById('extraInput').value.trim();
+}
+
+async function quickGenerate() {
+  getFormData();
+  if (!currentArticle.topic) { toast('请输入主题', 'error'); return; }
+  currentStep = 3;
+  showStep(3);
+  await generateOutline();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 2: 素材
+// ═══════════════════════════════════════════════════════════════════════════
+async function extractMaterial() {
+  getFormData();
+  const sourceText = document.getElementById('sourceInput').value.trim();
+  if (!sourceText) { toast('请粘贴对标文章', 'error'); return; }
+  currentArticle.sourceText = sourceText;
+  try {
+    const resp = await fetch('/api/extract-material', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ source_text: sourceText, topic: currentArticle.topic })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.material = data.material;
+      const m = data.material;
+      document.getElementById('materialResult').style.display = 'block';
+      document.getElementById('materialContent').innerHTML = `
+        <div style="margin-bottom:8px"><strong>核心事实：</strong><br>${(m.core_facts||[]).map(f=>`• ${f}`).join('<br>')}</div>
+        <div style="margin-bottom:8px"><strong>关键观点：</strong><br>${(m.key_opinions||[]).map(o=>`• ${o}`).join('<br>')}</div>
+        <div style="margin-bottom:8px"><strong>金句：</strong><br>${(m.golden_sentences||[]).map(g=>`「${g}」`).join('<br>')}</div>
+        <div><strong>数据/案例：</strong><br>${(m.data_points||[]).map(d=>`📊 ${d}`).join('<br>')}</div>
+      `;
+      toast('素材提取成功');
+    }
+  } catch(e) { toast('提取失败: ' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 3: 大纲（人机共创）
+// ═══════════════════════════════════════════════════════════════════════════
+async function generateOutline() {
+  getFormData();
+  document.getElementById('outlineLoading').style.display = 'block';
+  document.getElementById('outlineContent').style.display = 'none';
+  try {
+    const body = {
+      topic: currentArticle.topic, platform: currentArticle.platform,
+      mode: currentArticle.mode, source_text: currentArticle.sourceText || '',
+      style_profile_id: currentArticle.styleProfileId || '',
+      extra_requirements: currentArticle.extraRequirements || ''
+    };
+    const resp = await fetch('/api/generate/outline', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.outline = data.outline;
+      renderOutline(data.outline);
+    } else { toast('大纲生成失败', 'error'); }
+  } catch(e) { toast('生成失败: ' + e.message, 'error'); }
+  document.getElementById('outlineLoading').style.display = 'none';
+  document.getElementById('outlineContent').style.display = 'block';
+}
+
+function renderOutline(outline) {
+  // 标题候选
+  const tc = document.getElementById('titleCandidates');
+  tc.innerHTML = outline.title_candidates.map((t, i) => `
+    <div class="title-candidate ${t === outline.selected_title ? 'selected' : ''}"
+         onclick="selectTitle(this, '${t.replace(/'/g, "\\'")}')">
+      <div class="title-text">${t}</div>
+    </div>
+  `).join('');
+
+  // 钩子
+  document.getElementById('hookEditor').value = outline.hook || '';
+
+  // 小节
+  const se = document.getElementById('sectionsEditor');
+  se.innerHTML = outline.sections.map((s, i) => `
+    <div class="section-card" draggable="true" data-idx="${i}">
+      <div class="section-title">📌 ${s.title || '小节 ' + (i+1)}</div>
+      <div class="section-points">${(s.key_points||[]).map(p=>`• ${p}`).join('<br>')}</div>
+      <div class="section-budget">字数预算: ~${s.word_budget || 500}字</div>
+      <div style="margin-top:6px">
+        <button class="btn btn-sm" onclick="editSection(${i})">✏️ 编辑</button>
+      </div>
+    </div>
+  `).join('');
+
+  // CTA
+  document.getElementById('ctaEditor').value = outline.cta || '';
+  // 标签
+  document.getElementById('tagsEditor').value = (outline.tags || []).join(', ');
+}
+
+function selectTitle(el, title) {
+  document.querySelectorAll('.title-candidate').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  currentArticle.outline.selected_title = title;
+}
+
+async function moreTitles() {
+  try {
+    const resp = await fetch('/api/generate/titles', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        topic: currentArticle.topic,
+        outline_summary: currentArticle.outline.sections.map(s => s.title).join('→'),
+        platform: currentArticle.platform, count: 5
+      })
+    });
+    const data = await resp.json();
+    if (data.ok && data.titles.length) {
+      const tc = document.getElementById('titleCandidates');
+      data.titles.forEach(t => {
+        const div = document.createElement('div');
+        div.className = 'title-candidate';
+        div.innerHTML = `<div class="title-text">${t.title}</div><div class="title-score">${t.score}</div>`;
+        div.onclick = () => { selectTitle(div, t.title); };
+        tc.appendChild(div);
+      });
+      toast('已追加新标题');
+    }
+  } catch(e) { toast('生成失败', 'error'); }
+}
+
+function editTitle() {
+  const current = currentArticle.outline.selected_title;
+  const newTitle = prompt('输入自定义标题：', current);
+  if (newTitle && newTitle.trim()) {
+    currentArticle.outline.selected_title = newTitle.trim();
+    const tc = document.getElementById('titleCandidates');
+    const div = document.createElement('div');
+    div.className = 'title-candidate selected';
+    div.innerHTML = `<div class="title-text">${newTitle.trim()}</div>`;
+    div.onclick = () => selectTitle(div, newTitle.trim());
+    tc.querySelectorAll('.title-candidate').forEach(c => c.classList.remove('selected'));
+    tc.appendChild(div);
+  }
+}
+
+function editSection(idx) {
+  const section = currentArticle.outline.sections[idx];
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-title">编辑小节</div>
+      <div class="form-group">
+        <label class="form-label">小节标题</label>
+        <input class="form-input" id="editSecTitle" value="${section.title || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">要点（每行一个）</label>
+        <textarea class="form-textarea" id="editSecPoints" rows="4">${(section.key_points||[]).join('\n')}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">字数预算</label>
+        <input class="form-input" type="number" id="editSecBudget" value="${section.word_budget || 500}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">写作指导</label>
+        <textarea class="form-textarea" id="editSecGuide" rows="2">${section.writing_guide || ''}</textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-danger btn-sm" onclick="removeSection(${idx}); this.closest('.modal-overlay').remove()">删除此节</button>
+        <button class="btn" onclick="this.closest('.modal-overlay').remove()">取消</button>
+        <button class="btn btn-primary" onclick="saveSection(${idx}); this.closest('.modal-overlay').remove()">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function saveSection(idx) {
+  const sections = currentArticle.outline.sections;
+  sections[idx] = {
+    title: document.getElementById('editSecTitle').value,
+    key_points: document.getElementById('editSecPoints').value.split('\n').filter(l => l.trim()),
+    word_budget: parseInt(document.getElementById('editSecBudget').value) || 500,
+    writing_guide: document.getElementById('editSecGuide').value,
+  };
+  renderOutline(currentArticle.outline);
+}
+
+function removeSection(idx) {
+  currentArticle.outline.sections.splice(idx, 1);
+  renderOutline(currentArticle.outline);
+}
+
+function collectOutlineFromUI() {
+  const outline = currentArticle.outline;
+  outline.selected_title = outline.selected_title || outline.title_candidates[0];
+  outline.hook = document.getElementById('hookEditor').value;
+  outline.cta = document.getElementById('ctaEditor').value;
+  outline.tags = document.getElementById('tagsEditor').value.split(',').map(t => t.trim()).filter(Boolean);
+  return outline;
+}
+
+async function regenerateOutline() {
+  currentArticle.outline = null;
+  await generateOutline();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 4: 正文生成
+// ═══════════════════════════════════════════════════════════════════════════
+async function generateContent() {
+  const outline = collectOutlineFromUI();
+  document.getElementById('contentLoading').style.display = 'block';
+  document.getElementById('contentResult').style.display = 'none';
+  document.getElementById('contentProgress').textContent = '正在生成正文（分块中，请耐心等待）...';
+
+  try {
+    const body = {
+      outline: outline, topic: currentArticle.topic,
+      platform: currentArticle.platform,
+      source_text: currentArticle.sourceText || '',
+      style_profile_id: currentArticle.styleProfileId || ''
+    };
+    const resp = await fetch('/api/generate/content', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.content = data.content;
+      document.getElementById('contentEditor').value = data.content;
+      document.getElementById('wordCount').textContent = `${data.word_count} 字`;
+      // 自动验证
+      validateContent(data.content);
+    } else { toast('正文生成失败', 'error'); }
+  } catch(e) { toast('生成失败: ' + e.message, 'error'); }
+
+  document.getElementById('contentLoading').style.display = 'none';
+  document.getElementById('contentResult').style.display = 'block';
+}
+
+async function validateContent(content) {
+  try {
+    const resp = await fetch('/api/validate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content: content || document.getElementById('contentEditor').value,
+                             platform: currentArticle.platform })
+    });
+    const data = await resp.json();
+    currentArticle.validation = data;
+    showValidation(data);
+  } catch(e) { console.error(e); }
+}
+
+function revalidate() { validateContent(); }
+
+function showValidation(data) {
+  const el = document.getElementById('validationResult');
+  if (!el) return;
+  const badge = data.passed
+    ? `<div class="validation-badge pass">✅ 验证通过 — 得分 ${data.score}/100</div>`
+    : `<div class="validation-badge fail">⚠️ 有问题 — 得分 ${data.score}/100</div>`;
+  const issues = (data.issues || []).map(i =>
+    `<div class="issue-item ${i.severity}">[${i.severity}] ${i.description}</div>`
+  ).join('');
+  el.innerHTML = `<div class="card">${badge}${issues}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 5: 导出
+// ═══════════════════════════════════════════════════════════════════════════
+async function formatAndPreview() {
+  const content = document.getElementById('contentEditor').value;
+  if (!content) { toast('没有正文内容', 'error'); return; }
+  currentArticle.content = content;
+  const outline = currentArticle.outline || {};
+  try {
+    const resp = await fetch('/api/format', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ content, title: outline.selected_title || '', tags: outline.tags || [] })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.html = data.html;
+      document.getElementById('previewBox').innerHTML = data.html;
+      document.getElementById('htmlOutput').value = data.html;
+      document.getElementById('textOutput').value = content;
+      toast('排版生成成功');
+    }
+  } catch(e) { toast('排版失败: ' + e.message, 'error'); }
+}
+
+function switchExportTab(tab, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('exportPreview').style.display = tab === 'preview' ? 'block' : 'none';
+  document.getElementById('exportHtml').style.display = tab === 'html' ? 'block' : 'none';
+  document.getElementById('exportText').style.display = tab === 'text' ? 'block' : 'none';
+}
+
+function copyToClipboard(type) {
+  const text = type === 'html' ? document.getElementById('htmlOutput').value
+                                : document.getElementById('textOutput').value;
+  navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'));
+}
+
+async function saveArticle() {
+  const content = document.getElementById('contentEditor').value;
+  const outline = currentArticle.outline || {};
+  try {
+    const resp = await fetch('/api/articles/save', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: currentArticle.id, topic: currentArticle.topic,
+        platform: currentArticle.platform, mode: currentArticle.mode,
+        outline: outline, content: content, html: currentArticle.html || ''
+      })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      currentArticle.id = data.id;
+      toast('文章已保存');
+      loadArticles();
+    }
+  } catch(e) { toast('保存失败', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 工具
+// ═══════════════════════════════════════════════════════════════════════════
+function toast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+</script>
+</body>
+</html>

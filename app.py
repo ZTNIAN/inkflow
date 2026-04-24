@@ -646,10 +646,6 @@ async def fetch_references(req: FetchReferencesReq):
     if len(req.urls) > 5:
         raise HTTPException(400, "最多支持 5 个参考链接")
 
-    if _generation_active["active"]:
-        raise HTTPException(429, f"另一个生成任务正在进行中，请等待完成")
-
-    _generation_active.update({"active": True, "started_at": time.time(), "task": "参考链接抓取"})
     try:
         material = await asyncio.to_thread(
             _pipeline(0.3).extract_material_from_urls, req.urls, req.topic,
@@ -659,8 +655,6 @@ async def fetch_references(req: FetchReferencesReq):
     except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(500, f"参考链接抓取失败：{e}")
-    finally:
-        _generation_active.update({"active": False, "task": ""})
 
 
 # ── 图片建议 ──────────────────────────────────────────────────────────────────

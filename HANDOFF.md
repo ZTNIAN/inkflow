@@ -46,6 +46,14 @@ LLM (llm.py)
  ↓ 返回后
 Validator (validator.py)
  └── 13 项规则检测
+
+Tests (tests/)
+ ├── conftest.py        → 全局 fixture + mock LLM
+ ├── test_validator.py  → 验证器 13 项规则全覆盖（20 用例）
+ ├── test_llm_parse.py  → JSON 解析 10 层修复策略（18 用例）
+ ├── test_pipeline_unit.py → Pipeline 纯逻辑/静态方法（18 用例）
+ ├── test_api_basic.py  → 基础 API 端点（17 用例）
+ └── test_api_generate.py → mock LLM 管线 API（14 用例）
 ```
 
 ## 数据模型
@@ -272,6 +280,12 @@ DeepSeek 等模型输出 JSON 时常见问题：
 | 前端审计 | index.html | `runAudit()` |
 | 前端统计 | index.html | `showStats()` |
 | 配置 | .env | `DEEPSEEK_*` 变量 |
+| 测试全局配置 | tests/conftest.py | mock LLM / TestClient / temp dir |
+| 验证器测试 | tests/test_validator.py | 13 项规则 + 分数 + 误杀 |
+| JSON 解析测试 | tests/test_llm_parse.py | 修复策略链 + 重试 |
+| Pipeline 测试 | tests/test_pipeline_unit.py | 纯逻辑 + 静态方法 + 持久化 |
+| API 基础测试 | tests/test_api_basic.py | 健康检查 / CRUD / 版本 / 标签 |
+| 生成管线测试 | tests/test_api_generate.py | mock LLM 覆盖全部生成端点 |
 
 ## 已知问题
 
@@ -279,9 +293,12 @@ DeepSeek 等模型输出 JSON 时常见问题：
 - **风格提取只支持 .txt/.md** — 不支持 .docx/.pdf
 - **无持久化用户系统** — 所有数据本地文件存储，无登录/多用户
 - **敏感词库需持续扩充** — 当前 70+ 词，可接入平台官方违禁词列表
+- **前端无自动化测试** — 当前测试仅覆盖后端（Python），前端 index.html（1600 行 SPA）无测试
+- **部分 API 端点在 mock 模式下仅验证 HTTP 响应码** — 生成管线（大纲/正文/审计等）的 LLM 返回内容被 mock 覆盖，无法验证 Prompt 质量
 
 ## 依赖
 
+### 运行
 ```
 fastapi>=0.100.0
 uvicorn>=0.23.0
@@ -292,6 +309,13 @@ python-docx>=1.0.0
 readability-lxml>=0.8.0
 lxml>=4.0.0
 html2text>=2024.0.0
+```
+
+### 测试
+```
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.26.0
 ```
 
 ## 启动
@@ -312,9 +336,68 @@ python3 app.py
 - **v4.0** — 文章审计（六维度）+ 单节重写 + 导出 Word + 敏感词库扩充（70+）+ 文章模板（5 种）+ 暗/亮主题
 - **v5.0** — 大纲拖拽排序 + 复制文章 + 版本管理 + AI 绘图 prompt + 删除确认
 - **v6.0** — 写作统计面板 + 标签管理 + 按标签筛选
-- **v7.0** — JSON 解析鲁棒性 + 自动迭代修订 + Prompt 人味升级 + 验证器优化（详见下方）
+- **v7.0** — JSON 解析鲁棒性 + 自动迭代修订 + Prompt 人味升级 + 验证器优化
+- **v8.0** — 自动化测试套件（124 个用例，5 个测试模块，详见下方）
 
-### v7.0 改动详情（2026-04-23）
+### v8.0 改动详情（2026-04-24）
+
+#### 测试基础设施（新增）
+- **测试框架**：pytest + pytest-asyncio + httpx (FastAPI TestClient)
+- **目录结构**：`tests/` 下 5 个测试模块，`tests/conftest.py` 提供全部全局 fixture
+- **运行方式**：`pytest tests/ -v`（无需任何外部依赖或 API Key）
+
+#### conftest.py — 全局测试基础设施
+- `mock_llm` fixture：monkeypatch 替换 `LLM.complete()` 和 `LLM.stream()`，返回预设 JSON 响应，所有生成管线测试无需真实 API
+- `client` fixture：FastAPI TestClient，覆盖 30+ API 端点的 HTTP 测试
+- `temp_data_dir` fixture：临时数据目录，避免测试污染真实数据
+- `no_env_dependency` fixture（autouse）：自动设置 mock 环境变量，无需 .env 文件
+- 预制样本数据：`sample_content`（2000+ 字模拟文章）、`sample_outline_dict`（标准大纲结构）
+
+#### test_validator.py（20 个用例）
+- 13 项验证规则全覆盖：AI_MARKER、FORBIDDEN、META、REPORT、COLLECTIVE、SENSITIVE（含短词边界匹配）、LENGTH、LONG_PARA、CONSECUTIVE_LE、AI_FILLER、REPETITIVE、EXCLAMATION、MONOTONE
+- 规则误杀防护验证：确保"最好""第一"等短词在普通文本中不被错误触发
+- 分数计算验证：100 分完美文章、扣分逻辑、自定义敏感词
+- 平台区分：公众号 1500-3000 字 / 头条 800-2000 字
+
+#### test_llm_parse.py（18 个用例）
+- JSON 修复策略链逐层验证：
+  - `_extract_json_text()`：markdown 包裹去除、前后废话裁剪、数组/对象提取
+  - `_fix_smart_quotes()`：弯引号空字符串、嵌套引号、书名号《》转义
+  - `_fix_trailing_commas()`：对象/数组尾逗号去除
+  - `_fix_object_as_array()`：中文 key 的对象转数组、正常对象不变、单元素场景
+  - `_repair()`：截断对象/数组/嵌套结构/尾逗号补全
+- `parse_json()` 完整管线测试：多问题组合（弯引号+尾逗号+markdown 包裹）
+- `parse_json_list()`：标准数组、单对象兜底、markdown 包裹
+- `with_retry()`：首次成功、重试成功、全部失败
+
+#### test_pipeline_unit.py（18 个用例）
+- `_to_dict()` 序列化：dataclass、嵌套对象、列表、字典值、原始类型
+- Outline / StyleProfile dataclass 默认值
+- `_build_style_instruction()`：有/无 profile
+- `_get_material_hint()`：有素材、索引越界、无素材
+- `regenerate_section()` 无效索引异常
+- 静态方法：`load_article`/`load_style` 不存在抛异常、空列表返回
+- 文章持久化：save + load 往返、list_articles 多篇文章
+
+#### test_api_basic.py（17 个用例）
+- 健康检查：状态、版本、配置标记
+- 设置：读取/保存
+- 空列表端点：文章列表、标签列表、统计数据、风格列表
+- 排版模板列表、文章模板列表
+- 文章 CRUD：不存在 404、删除、复制不存在
+- 保存 + 读取往返（含临时目录隔离）
+- 标签筛选、版本历史（空列表/不存在 404）
+- 风格 API：列表/获取不存在/删除不存在
+
+#### test_api_generate.py（14 个用例）
+- 验证端点：完美内容/有问题的内容
+- 修订端点：缺少内容 400、缺少指令 400
+- 修订建议：有大纲/无大纲
+- 素材提取：空素材
+- 文章保存：新建、重复保存触发版本管理
+- 生成端点：大纲、标题（mock LLM）、批量超限 400、批量空 400
+- 排版生成（mock LLM）、审计（mock LLM）、SEO（mock LLM）
+- 参考链接：空 URL 列表 400
 
 #### llm.py — JSON 解析重写
 - `parse_json()` 从单次尝试改为 **10 层修复策略链**，按顺序尝试：

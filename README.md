@@ -111,11 +111,19 @@ inkflow/
 ├── validator.py        # 写后验证器（13 项规则检测）
 ├── index.html          # 前端 SPA（单文件，暗/亮主题）
 ├── requirements.txt    # Python 依赖
+├── pytest.ini          # pytest 配置
 ├── .env.example        # 配置模板
 ├── .gitignore
 ├── README.md           # 本文件
 ├── HANDOFF.md          # 项目交接文档
 ├── LICENSE
+├── tests/              # 自动化测试（124 个用例）
+│   ├── conftest.py     # 全局 fixture + LLM mock
+│   ├── test_validator.py    # 验证器 13 项规则全覆盖
+│   ├── test_llm_parse.py    # JSON 解析 10 层修复策略
+│   ├── test_pipeline_unit.py # Pipeline 纯逻辑/静态方法
+│   ├── test_api_basic.py    # API 基础端点（健康检查/文章 CRUD 等）
+│   └── test_api_generate.py # 生成管线 API（mock LLM）
 └── data/               # 运行时数据（git 不追踪）
     ├── articles/       # 已生成的文章 JSON
     │   └── {id}/
@@ -123,12 +131,29 @@ inkflow/
     └── styles/         # 风格克隆 profile JSON
 ```
 
+## 🧪 测试
+
+```bash
+pip install -r requirements.txt
+pytest tests/ -v              # 全部 124 个用例
+pytest tests/test_validator.py -v  # 仅验证器
+```
+
+| 测试文件 | 用例数 | 覆盖内容 |
+|---------|--------|---------|
+| `test_validator.py` | 20 | 13 项规则 + 分数计算 + 误杀防护 |
+| `test_llm_parse.py` | 18 | JSON 修复策略链（弯引号/截断/尾逗号等）|
+| `test_pipeline_unit.py` | 18 | 序列化/静态方法/持久化/边界条件 |
+| `test_api_basic.py` | 17 | 健康检查/CRUD/版本管理/标签/风格 |
+| `test_api_generate.py` | 14 | 验证/修订/大纲/审计/SEO/批量/mock LLM |
+
 ## 🔧 技术栈
 
 - **后端**: Python 3.10+ / FastAPI / Uvicorn
 - **前端**: 原生 HTML/CSS/JS（单文件 SPA，无构建工具）
 - **LLM**: DeepSeek API（兼容 Ollama / 任意 OpenAI 兼容接口）
 - **存储**: 纯文件驱动（JSON），无数据库依赖
+- **测试**: pytest + pytest-asyncio + httpx (FastAPI TestClient)
 
 ## 📋 设计原则
 

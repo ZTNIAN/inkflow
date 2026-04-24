@@ -337,67 +337,10 @@ python3 app.py
 - **v5.0** — 大纲拖拽排序 + 复制文章 + 版本管理 + AI 绘图 prompt + 删除确认
 - **v6.0** — 写作统计面板 + 标签管理 + 按标签筛选
 - **v7.0** — JSON 解析鲁棒性 + 自动迭代修订 + Prompt 人味升级 + 验证器优化
-- **v8.0** — 自动化测试套件（124 个用例，5 个测试模块，详见下方）
+- **v8.0** — 自动化测试套件（124 个用例，5 个测试模块）
+- **v8.1** — 稳定性修复 + 审计一键修订 + 参数持久化
 
-### v8.0 改动详情（2026-04-24）
-
-#### 测试基础设施（新增）
-- **测试框架**：pytest + pytest-asyncio + httpx (FastAPI TestClient)
-- **目录结构**：`tests/` 下 5 个测试模块，`tests/conftest.py` 提供全部全局 fixture
-- **运行方式**：`pytest tests/ -v`（无需任何外部依赖或 API Key）
-
-#### conftest.py — 全局测试基础设施
-- `mock_llm` fixture：monkeypatch 替换 `LLM.complete()` 和 `LLM.stream()`，返回预设 JSON 响应，所有生成管线测试无需真实 API
-- `client` fixture：FastAPI TestClient，覆盖 30+ API 端点的 HTTP 测试
-- `temp_data_dir` fixture：临时数据目录，避免测试污染真实数据
-- `no_env_dependency` fixture（autouse）：自动设置 mock 环境变量，无需 .env 文件
-- 预制样本数据：`sample_content`（2000+ 字模拟文章）、`sample_outline_dict`（标准大纲结构）
-
-#### test_validator.py（20 个用例）
-- 13 项验证规则全覆盖：AI_MARKER、FORBIDDEN、META、REPORT、COLLECTIVE、SENSITIVE（含短词边界匹配）、LENGTH、LONG_PARA、CONSECUTIVE_LE、AI_FILLER、REPETITIVE、EXCLAMATION、MONOTONE
-- 规则误杀防护验证：确保"最好""第一"等短词在普通文本中不被错误触发
-- 分数计算验证：100 分完美文章、扣分逻辑、自定义敏感词
-- 平台区分：公众号 1500-3000 字 / 头条 800-2000 字
-
-#### test_llm_parse.py（18 个用例）
-- JSON 修复策略链逐层验证：
-  - `_extract_json_text()`：markdown 包裹去除、前后废话裁剪、数组/对象提取
-  - `_fix_smart_quotes()`：弯引号空字符串、嵌套引号、书名号《》转义
-  - `_fix_trailing_commas()`：对象/数组尾逗号去除
-  - `_fix_object_as_array()`：中文 key 的对象转数组、正常对象不变、单元素场景
-  - `_repair()`：截断对象/数组/嵌套结构/尾逗号补全
-- `parse_json()` 完整管线测试：多问题组合（弯引号+尾逗号+markdown 包裹）
-- `parse_json_list()`：标准数组、单对象兜底、markdown 包裹
-- `with_retry()`：首次成功、重试成功、全部失败
-
-#### test_pipeline_unit.py（18 个用例）
-- `_to_dict()` 序列化：dataclass、嵌套对象、列表、字典值、原始类型
-- Outline / StyleProfile dataclass 默认值
-- `_build_style_instruction()`：有/无 profile
-- `_get_material_hint()`：有素材、索引越界、无素材
-- `regenerate_section()` 无效索引异常
-- 静态方法：`load_article`/`load_style` 不存在抛异常、空列表返回
-- 文章持久化：save + load 往返、list_articles 多篇文章
-
-#### test_api_basic.py（17 个用例）
-- 健康检查：状态、版本、配置标记
-- 设置：读取/保存
-- 空列表端点：文章列表、标签列表、统计数据、风格列表
-- 排版模板列表、文章模板列表
-- 文章 CRUD：不存在 404、删除、复制不存在
-- 保存 + 读取往返（含临时目录隔离）
-- 标签筛选、版本历史（空列表/不存在 404）
-- 风格 API：列表/获取不存在/删除不存在
-
-#### test_api_generate.py（14 个用例）
-- 验证端点：完美内容/有问题的内容
-- 修订端点：缺少内容 400、缺少指令 400
-- 修订建议：有大纲/无大纲
-- 素材提取：空素材
-- 文章保存：新建、重复保存触发版本管理
-- 生成端点：大纲、标题（mock LLM）、批量超限 400、批量空 400
-- 排版生成（mock LLM）、审计（mock LLM）、SEO（mock LLM）
-- 参考链接：空 URL 列表 400
+### v7.0 改动详情（2026-04-23）
 
 #### llm.py — JSON 解析重写
 - `parse_json()` 从单次尝试改为 **10 层修复策略链**，按顺序尝试：
@@ -423,10 +366,29 @@ python3 app.py
 - 短词（≤2字）加前后边界匹配，避免"一线城市"触发"第一"
 - 字数超限从 warning 升为 error（扣 15 分），确保触发自动修订
 
-#### 测试结果
-- 3 个不同 topic × 2 个 platform 全部通过，验证得分 100/100
-- JSON 解析：大纲生成 5/5 成功（修复前约 50%）
-- 自动修订：每次都能把超限初稿修正到目标字数范围内
+### v8.0 改动详情（2026-04-24）
+
+#### 测试基础设施（新增）
+- **测试框架**：pytest + pytest-asyncio + httpx (FastAPI TestClient)
+- **目录结构**：`tests/` 下 5 个测试模块，`tests/conftest.py` 提供全部全局 fixture
+- **运行方式**：`pytest tests/ -v`（无需任何外部依赖或 API Key）
+- **覆盖范围**：验证器 13 项规则 / JSON 解析 10 层修复策略 / Pipeline 纯逻辑 / API 基础端点 / 生成管线 mock LLM，共计 124 个用例
+
+### v8.1 改动详情（2026-04-24）
+
+#### 稳定性修复
+- **参考链接抓取容错**：`fetch_reference()` 各环节分别 try/except（SSL/readability/html2text），单个 URL 失败不中断整体流程
+- **缺失依赖补充**：`requirements.txt` 补全 `readability-lxml`、`lxml`、`python-docx`、`html2text`
+- **API 错误日志**：`/api/format`、`/api/audit`、`/api/fetch-references` 等端点异常时 `traceback.print_exc()` 输出完整堆栈
+- **测试不污染 .env**：`test_save_settings` 改为 mock 临时路径，不再覆写真实 .env 文件
+
+#### 用户体验改进
+- **对标素材/参考链接任一即可**：`extractMaterial()` 支持三种模式——仅对标文章、仅参考链接、两者全选并自动合并去重
+- **审计一键修订**：审计结果底部新增「📝 按审计结果一键修改」按钮，自动收集所有低分维度建议 + top_fixes + 验证器问题，打包成一条指令一次性 LLM 修订（避免逐个修改的级联问题）
+- **修订后自动跳转**：一键修订完成后自动切到 Step 4（写作页）展示结果
+- **回看文章保留参数**：`loadArticle()` 回填全部表单（topic/platform/mode/extraInput/styleSelect/sourceInput），恢复 material 和步骤状态
+- `saveArticle()` 新增持久化字段：`source_text`、`material`、`style_profile_id`、`extra_requirements`、`tags`
+- `showNewArticle()` 新建文章时清空全部表单字段
 
 ---
 

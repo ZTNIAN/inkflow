@@ -929,6 +929,10 @@ class SaveArticleReq(BaseModel):
     outline: dict = {}
     content: str = ""
     html: str = ""
+    source_text: str = ""
+    material: dict = {}
+    style_profile_id: str = ""
+    extra_requirements: str = ""
     revision_history: list = []
     tags: list[str] = []
 
@@ -949,6 +953,10 @@ def save_article(req: SaveArticleReq):
         "outline": req.outline,
         "content": req.content,
         "html": req.html,
+        "source_text": req.source_text,
+        "material": req.material,
+        "style_profile_id": req.style_profile_id,
+        "extra_requirements": req.extra_requirements,
         "word_count": len(req.content),
         "created_at": now.isoformat(),
         "revision_history": req.revision_history,

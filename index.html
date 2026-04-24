@@ -556,7 +556,8 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
 let currentArticle = {
   id: '', topic: '', platform: 'wechat', mode: '干货型',
   sourceText: '', material: null, styleProfileId: '',
-  outline: null, content: '', html: '', validation: null
+  outline: null, content: '', html: '', validation: null,
+  extraRequirements: '',
 };
 let currentStep = 1;
 let styles = [];
@@ -649,9 +650,19 @@ async function loadStyles() {
 // ═══════════════════════════════════════════════════════════════════════════
 function showNewArticle() {
   currentArticle = { id: '', topic: '', platform: 'wechat', mode: '干货型',
-    sourceText: '', material: null, styleProfileId: '', outline: null, content: '', html: '' };
+    sourceText: '', material: null, styleProfileId: '', outline: null,
+    content: '', html: '', validation: null, extraRequirements: '' };
   currentStep = 1;
   revisionHistory = [];
+  for (const el of ['topicInput','extraInput','sourceInput','referenceUrls']) {
+    const input = document.getElementById(el);
+    if (input) input.value = '';
+  }
+  document.getElementById('platformSelect').value = 'wechat';
+  document.getElementById('modeSelect').value = '干货型';
+  document.getElementById('styleSelect').value = '';
+  document.getElementById('contentEditor').value = '';
+  document.getElementById('materialResult').style.display = 'none';
   document.getElementById('welcomeView').style.display = 'none';
   document.getElementById('articleView').style.display = 'block';
   showStep(1);
@@ -665,14 +676,36 @@ async function loadArticle(id) {
     const data = await resp.json();
     currentArticle = {
       id: data.id, topic: data.topic, platform: data.platform, mode: data.mode,
-      sourceText: data.source_text || '', material: null, styleProfileId: data.style_profile_id || '',
+      sourceText: data.source_text || '', material: data.material || null,
+      styleProfileId: data.style_profile_id || '',
       outline: data.outline, content: data.content, html: data.html,
-      validation: data.validation
+      validation: data.validation, extraRequirements: data.extra_requirements || '',
     };
     revisionHistory = data.revision_history || [];
     renderRevisionHistory();
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('articleView').style.display = 'block';
+
+    // 回填表单
+    document.getElementById('topicInput').value = data.topic || '';
+    document.getElementById('platformSelect').value = data.platform || 'wechat';
+    document.getElementById('modeSelect').value = data.mode || '干货型';
+    document.getElementById('extraInput').value = data.extra_requirements || '';
+    document.getElementById('styleSelect').value = data.style_profile_id || '';
+    document.getElementById('sourceInput').value = data.source_text || '';
+
+    // 回填素材显示
+    if (data.material && (data.material.core_facts || data.material.golden_sentences)) {
+      _renderMaterial(data.material);
+    } else {
+      document.getElementById('materialResult').style.display = 'none';
+    }
+
+    // 回填标签
+    if (data.tags && data.tags.length && currentArticle.outline) {
+      currentArticle.outline.tags = data.tags;
+    }
+
     if (data.content) {
       document.getElementById('contentEditor').value = data.content;
       updateWordIndicator(data.content.length);
@@ -684,7 +717,7 @@ async function loadArticle(id) {
         document.getElementById('textOutput').value = data.content;
       }
       currentStep = data.html ? 5 : 4;
-    } else if (data.outline) {
+    } else if (data.outline && data.outline.sections && data.outline.sections.length) {
       currentStep = 3;
       renderOutline(data.outline);
     } else {
@@ -1557,6 +1590,11 @@ async function saveArticle(silent = false) {
         id: currentArticle.id, topic: currentArticle.topic,
         platform: currentArticle.platform, mode: currentArticle.mode,
         outline: outline, content: content, html: currentArticle.html || '',
+        source_text: currentArticle.sourceText || '',
+        material: currentArticle.material || {},
+        style_profile_id: currentArticle.styleProfileId || '',
+        extra_requirements: currentArticle.extraRequirements || '',
+        tags: currentArticle.outline?.tags || [],
         revision_history: revisionHistory
       })
     });

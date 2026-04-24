@@ -564,6 +564,7 @@ let revisionHistory = [];
 let autoSaveTimer = null;
 let isGenerating = false;
 let useStreamMode = true; // 默认使用流式模式
+let lastAuditData = null; // 上次审计结果，供一键修订用
 
 // 字数目标
 const WORD_TARGETS = {
@@ -1801,6 +1802,7 @@ async function runAudit() {
     const data = await resp.json();
     if (data.ok) {
       const a = data.audit;
+      lastAuditData = a;
       const el = document.getElementById('auditResult');
 
       function scoreColor(s) { return s >= 80 ? 'var(--green)' : s >= 60 ? 'var(--yellow)' : 'var(--red)'; }
@@ -1849,6 +1851,9 @@ async function runAudit() {
         ${dims}
         ${topFixes ? `<div style="margin-top:12px"><strong>🔧 最重要的修改：</strong>${topFixes}</div>` : ''}
         ${validatorIssues ? `<div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:8px"><strong style="font-size:12px">验证器检测到的问题：</strong>${validatorIssues}</div>` : ''}
+        <div style="margin-top:16px;text-align:center">
+          <button class="btn btn-primary" onclick="applyAuditFixes()">📝 按审计结果一键修改</button>
+        </div>
       `;
       const auditTab = document.querySelector('.tab[onclick*="audit"]');
       if (auditTab) switchExportTab('audit', auditTab);
@@ -1856,6 +1861,40 @@ async function runAudit() {
     }
   } catch(e) { toast('审计失败: ' + e.message, 'error'); }
   setBusy(false);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 审计 → 一键修订
+// ═══════════════════════════════════════════════════════════════════════════
+async function applyAuditFixes() {
+  if (!lastAuditData) { toast('请先运行审计', 'error'); return; }
+  const instructions = [];
+
+  // 1. 各维度的建议
+  const dims = lastAuditData.dimensions || {};
+  for (const [key, label] of [['ai_flavor','AI味'], ['sensitive_words','敏感词'], ['content_quality','内容质量'],
+                               ['readability','可读性'], ['engagement','互动性'], ['platform_fit','平台适配']]) {
+    const dim = dims[key];
+    if (!dim) continue;
+    if (dim.score >= 80) continue; // 高分维度跳过，没必要改
+    (dim.suggestions || []).forEach(s => instructions.push(`【${label}】${s}`));
+  }
+
+  // 2. top_fixes
+  (lastAuditData.top_fixes || []).forEach(f => instructions.push(`【重要修改】${f}`));
+
+  // 3. 验证器问题
+  const v = lastAuditData.validator || {};
+  (v.issues || []).slice(0, 5).forEach(i => {
+    if (i.severity === 'error') instructions.push(`【必须修复】${i.description}`);
+    else instructions.push(`【建议修复】${i.description}`);
+  });
+
+  if (!instructions.length) { toast('审计未发现问题，无需修改', 'success'); return; }
+
+  const combined = '请根据以下审计结果修改文章，一次性解决所有问题：\n' + instructions.map((s, i) => `${i+1}. ${s}`).join('\n');
+  await executeRevise(combined, '');
+  toast('已根据审计结果完成修订');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -848,6 +848,7 @@ async def audit_article(req: AuditReq):
         )
         return {"ok": True, "audit": result}
     except Exception as e:
+        import traceback; traceback.print_exc()
         raise HTTPException(500, f"审计失败：{e}")
 
 

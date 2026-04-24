@@ -1894,7 +1894,8 @@ async function applyAuditFixes() {
 
   const combined = '请根据以下审计结果修改文章，一次性解决所有问题：\n' + instructions.map((s, i) => `${i+1}. ${s}`).join('\n');
   await executeRevise(combined, '');
-  toast('已根据审计结果完成修订');
+  toast('✅ 已根据审计结果完成修订，切换到写作页查看');
+  setTimeout(() => { goStep(4); }, 800);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

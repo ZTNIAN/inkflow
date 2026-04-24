@@ -20,7 +20,8 @@ class TestSettings:
         assert "configured" in data
         assert data["configured"] is True
 
-    def test_save_settings(self, client):
+    def test_save_settings(self, client, monkeypatch, tmp_path):
+        monkeypatch.setattr("app.ENV_PATH", tmp_path / ".env")
         resp = client.post("/api/settings", json={
             "deepseek_api_key": "sk-new-key-12345",
             "deepseek_base_url": "https://api.deepseek.com/v1",

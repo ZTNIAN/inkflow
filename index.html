@@ -173,6 +173,7 @@ border-bottom:2px solid transparent;transition:all .15s}
 font-size:13px;z-index:200;animation:slideIn .3s ease;box-shadow:var(--shadow)}
 .toast.success{background:var(--green-bg);color:var(--green);border:1px solid var(--green)}
 .toast.error{background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
+.toast.warning{background:#fff3cd;color:#856404;border:1px solid #ffc107}
 .toast.info{background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue)}
 @keyframes slideIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
 
@@ -1377,8 +1378,8 @@ async function fetchReferences() {
 
   getFormData();
   const btn = document.getElementById('fetchRefBtn');
-  btn.disabled = true; btn.textContent = '抓取中...';
-  setBusy(true, '抓取参考链接...');
+  btn.disabled = true; btn.textContent = '⏳ 抓取中...';
+  setBusy(true, '正在抓取参考链接...（最多等待 60 秒）');
 
   try {
     const resp = await fetch('/api/fetch-references', {
@@ -1386,19 +1387,29 @@ async function fetchReferences() {
       body: JSON.stringify({ urls, topic: currentArticle.topic })
     });
     const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || `请求失败 (${resp.status})`);
     if (data.ok) {
       currentArticle.material = data.material;
       const m = data.material;
       document.getElementById('materialResult').style.display = 'block';
-      document.getElementById('materialContent').innerHTML = `
-        <div style="margin-bottom:8px"><strong>核心事实：</strong><br>${(m.core_facts||[]).map(f=>'• '+f).join('<br>')}</div>
-        <div style="margin-bottom:8px"><strong>关键观点：</strong><br>${(m.key_opinions||[]).map(o=>'• '+o).join('<br>')}</div>
-        <div style="margin-bottom:8px"><strong>金句：</strong><br>${(m.golden_sentences||[]).map(g=>'「'+g+'」').join('<br>')}</div>
-        <div><strong>数据/案例：</strong><br>${(m.data_points||[]).map(d=>'📊 '+d).join('<br>')}</div>
-      `;
-      toast('参考链接抓取成功');
+      let html = '';
+      if (m.core_facts && m.core_facts.length) html += `<div style="margin-bottom:8px"><strong>核心事实：</strong><br>${m.core_facts.map(f=>'• '+f).join('<br>')}</div>`;
+      if (m.key_opinions && m.key_opinions.length) html += `<div style="margin-bottom:8px"><strong>关键观点：</strong><br>${m.key_opinions.map(o=>'• '+o).join('<br>')}</div>`;
+      if (m.golden_sentences && m.golden_sentences.length) html += `<div style="margin-bottom:8px"><strong>金句：</strong><br>${m.golden_sentences.map(g=>'「'+g+'」').join('<br>')}</div>`;
+      if (m.data_points && m.data_points.length) html += `<div style="margin-bottom:8px"><strong>数据/案例：</strong><br>${m.data_points.map(d=>'📊 '+d).join('<br>')}</div>`;
+      if (m.hook_ideas && m.hook_ideas.length) html += `<div style="margin-bottom:8px"><strong>开头创意：</strong><br>${m.hook_ideas.map(h=>'💡 '+h).join('<br>')}</div>`;
+      if (!html) html = '<div style="color:#999">未能从链接中提取到有效内容，请检查链接是否可访问</div>';
+      document.getElementById('materialContent').innerHTML = html;
+
+      if (data.fetch_errors && data.fetch_errors.length) {
+        toast('部分链接抓取失败: ' + data.fetch_errors.join('; '), 'warning');
+      } else {
+        toast('参考链接抓取成功');
+      }
     }
-  } catch(e) { toast('抓取失败: ' + e.message, 'error'); }
+  } catch(e) {
+    toast('抓取失败: ' + e.message, 'error');
+  }
 
   btn.disabled = false; btn.textContent = '🔗 抓取链接内容';
   setBusy(false);

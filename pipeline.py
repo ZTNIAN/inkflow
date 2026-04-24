@@ -753,42 +753,64 @@ JSON 格式示例：
     @staticmethod
     def fetch_reference(url: str) -> dict:
         """抓取参考链接内容，提取正文"""
-        import urllib.request
-        from readability import Document
+        import urllib.request, ssl
+
+        # 放宽 SSL 校验，兼容部分网站证书问题
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
 
         req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
+        try:
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            return {"url": url, "title": "", "text": "", "error": str(e)}
 
-        doc = Document(html)
-        title = doc.title()
-        readable = doc.summary()
+        try:
+            from readability import Document
+            doc = Document(html)
+            title = doc.title()
+            readable = doc.summary()
+        except Exception as e:
+            return {"url": url, "title": "", "text": html[:3000], "error": f"readability 解析失败：{e}"}
 
-        h = html2text.HTML2Text()
-        h.ignore_links = True
-        h.ignore_images = True
-        h.body_width = 0
-        text = h.handle(readable).strip()
+        try:
+            h = html2text.HTML2Text()
+            h.ignore_links = True
+            h.ignore_images = True
+            h.body_width = 0
+            text = h.handle(readable).strip()
+        except Exception as e:
+            return {"url": url, "title": title, "text": readable[:3000], "error": f"html2text 转换失败：{e}"}
 
         return {"url": url, "title": title, "text": text[:6000]}
 
     def extract_material_from_urls(self, urls: list[str], topic: str) -> dict:
         """从多个参考链接抓取内容并提取素材"""
         combined = ""
+        errors = []
         for url in urls[:5]:
-            try:
-                ref = self.fetch_reference(url.strip())
+            ref = self.fetch_reference(url.strip())
+            if ref.get("error"):
+                errors.append(f"{url}: {ref['error']}")
+                combined += f"\n\n## 来源：{url}（抓取失败：{ref['error']}）"
+            elif ref['text'].strip():
                 combined += f"\n\n## 来源：{ref['title']}\n{ref['text']}"
-            except Exception as e:
-                combined += f"\n\n## 来源：{url}（抓取失败：{e}）"
+            else:
+                errors.append(f"{url}: 未能提取到正文内容")
+                combined += f"\n\n## 来源：{url}（内容为空）"
 
         if not combined.strip():
-            return {"core_facts": [], "key_opinions": [], "golden_sentences": [],
-                    "data_points": [], "controversial_angles": [], "hook_ideas": []}
+            error_detail = "；".join(errors) if errors else "所有链接均无法抓取"
+            raise RuntimeError(f"参考链接抓取失败：{error_detail}")
 
-        return self.extract_material(combined, topic)
+        material = self.extract_material(combined, topic)
+        return {**material, "_fetch_errors": errors}
 
     # ─────────────────────────────────────────────────────────────────────────
     # 新功能：图片建议

@@ -244,6 +244,8 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
       <span>📝 文章列表</span>
       <button class="btn btn-sm" onclick="toggleBatchMode()" id="batchToggleBtn" style="font-size:11px">☑ 批量</button>
     </div>
+    <div style="padding:6px 12px;border-bottom:1px solid var(--border)">
+      <input class="form-input" id="searchInput" placeholder="🔍 搜索文章..." style="font-size:12px;padding:4px 8px" oninput="filterByKeyword(this.value)">
     <div class="platform-filter" id="platformFilter">
       <button class="active" data-platform="" onclick="filterByPlatform(this)">全部</button>
       <button data-platform="wechat" onclick="filterByPlatform(this)">📱 公众号</button>
@@ -266,6 +268,10 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
       <span class="count" id="batchCount">已选 0 篇</span>
       <button class="btn btn-sm" onclick="batchCopySelected()" style="font-size:11px">📋 批量复制</button>
       <button class="btn btn-sm btn-danger" onclick="batchDeleteSelected()" style="font-size:11px">🗑 批量删除</button>
+    </div>
+    <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:11px;background:var(--bg2)">
+      <span style="cursor:pointer;color:var(--text3)" onclick="showTrash()">🗑 回收站</span>
+      <span id="trashCount" style="font-size:10px;color:var(--text3);margin-left:4px"></span>
     </div>
   </div>
 
@@ -508,6 +514,9 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
               <div class="form-label" style="margin-top:12px">📜 修订记录</div>
               <div id="revisionList"></div>
             </div>
+            <div style="margin-top:8px;display:flex;gap:8px">
+              <button class="btn btn-sm" onclick="showVersions()">📜 版本历史</button>
+            </div>
           </div>
 
           <div class="btn-group">
@@ -609,7 +618,7 @@ const WORD_TARGETS = {
 // ═══════════════════════════════════════════════════════════════════════════
 // 初始化
 // ═══════════════════════════════════════════════════════════════════════════
-window.onload = () => { loadArticles(); loadStyles(); setupKeyboardShortcuts(); };
+window.onload = () => { loadArticles(); loadStyles(); loadTrashCount(); setupKeyboardShortcuts(); };
 
 function setupKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
@@ -2180,19 +2189,112 @@ async function filterByPlatform(btn) {
   }
   renderTagList();
 }
+
+let _searchTimer = null;
+function filterByKeyword(keyword) {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(async () => {
+    const resp = await fetch('/api/articles');
+    const all = await resp.json();
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) { loadArticles(); renderTagList(); return; }
+    const filtered = all.filter(a =>
+      (a.topic || '').toLowerCase().includes(kw) ||
+      (a.title || '').toLowerCase().includes(kw) ||
+      (a.tags || []).some(t => t.toLowerCase().includes(kw))
+    );
+    renderArticleList(filtered);
+    renderTagList();
+  }, 200);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 回收站
+// ═══════════════════════════════════════════════════════════════════════════
+async function showTrash() {
+  const resp = await fetch('/api/trash');
+  const items = await resp.json();
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:500px">
+      <div class="modal-title">🗑 回收站</div>
+      ${!items.length ? '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">回收站为空</div>' : `
+        <div style="max-height:400px;overflow-y:auto;margin-bottom:12px">
+          ${items.map(item => `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+              <span class="platform-badge ${item.platform}">${item.platform === 'wechat' ? '📱' : '📰'}</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.topic}</span>
+              <span style="font-size:11px;color:var(--text3)">${item.word_count}字</span>
+              <button class="btn btn-sm" onclick="restoreFromTrash('${item.file}')" style="font-size:11px">↩ 恢复</button>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+          <button class="btn btn-sm btn-danger" onclick="emptyTrash()">🗑 清空回收站</button>
+        </div>
+      `}
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+async function restoreFromTrash(file) {
+  if (!confirm('确定要恢复这篇文章吗？')) return;
+  try {
+    const resp = await fetch(`/api/trash/${encodeURIComponent(file)}/restore`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      toast('文章已恢复');
+      document.querySelector('.modal-overlay')?.remove();
+      loadArticles();
+      loadTrashCount();
+    }
+  } catch(e) { toast('恢复失败', 'error'); }
+}
+
+async function emptyTrash() {
+  if (!confirm('确定要清空回收站吗？此操作不可撤销。')) return;
+  try {
+    const resp = await fetch('/api/trash/empty', { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      toast('回收站已清空');
+      document.querySelector('.modal-overlay')?.remove();
+      loadTrashCount();
+    }
+  } catch(e) { toast('清空失败', 'error'); }
+}
+
+async function loadTrashCount() {
+  try {
+    const resp = await fetch('/api/trash');
+    const items = await resp.json();
+    const el = document.getElementById('trashCount');
+    if (el) el.textContent = items.length ? `(${items.length})` : '';
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 删除文章（带确认 + 回收站）
+// ═══════════════════════════════════════════════════════════════════════════
 async function deleteArticleConfirm(id) {
   if (!confirm('确定要删除这篇文章吗？')) return;
   try {
     await fetch(`/api/articles/${id}`, { method: 'DELETE' });
-    toast('已删除');
+    toast('已移入回收站');
     if (currentArticle.id === id) {
       document.getElementById('welcomeView').style.display = 'block';
       document.getElementById('articleView').style.display = 'none';
     }
     loadArticles();
+    loadTrashCount();
   } catch(e) { toast('删除失败', 'error'); }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 删除文章（带确认 + 回收站）
 // ═══════════════════════════════════════════════════════════════════════════
 // 版本历史
 // ═══════════════════════════════════════════════════════════════════════════

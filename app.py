@@ -230,9 +230,61 @@ def get_article(article_id: str):
 
 @app.delete("/api/articles/{article_id}")
 def delete_article(article_id: str):
-    path = BASE_DIR / "data" / "articles" / f"{article_id}.json"
-    if path.exists():
-        path.unlink()
+    from datetime import datetime, timezone
+    src = BASE_DIR / "data" / "articles" / f"{article_id}.json"
+    if not src.exists():
+        return {"ok": True}
+    trash_dir = BASE_DIR / "data" / "trash"
+    trash_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    dst = trash_dir / f"{article_id}_{ts}.json"
+    src.rename(dst)
+    return {"ok": True}
+
+
+# ── 回收站 ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/trash")
+def list_trash():
+    trash_dir = BASE_DIR / "data" / "trash"
+    if not trash_dir.exists():
+        return []
+    items = []
+    for f in sorted(trash_dir.glob("*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            items.append({
+                "id": f.stem.split("_")[0],
+                "file": f.name,
+                "topic": data.get("topic", ""),
+                "platform": data.get("platform", ""),
+                "word_count": data.get("word_count", 0),
+                "deleted_at": f.stem.split("_", 1)[1] if "_" in f.stem else "",
+            })
+        except Exception:
+            pass
+    return items
+
+
+@app.post("/api/trash/{file_name}/restore")
+def restore_from_trash(file_name: str):
+    src = BASE_DIR / "data" / "trash" / file_name
+    if not src.exists():
+        raise HTTPException(404, "回收站文件不存在")
+    art_dir = BASE_DIR / "data" / "articles"
+    art_dir.mkdir(parents=True, exist_ok=True)
+    article_id = file_name.split("_")[0]
+    dst = art_dir / f"{article_id}.json"
+    src.rename(dst)
+    return {"ok": True}
+
+
+@app.post("/api/trash/empty")
+def empty_trash():
+    trash_dir = BASE_DIR / "data" / "trash"
+    if trash_dir.exists():
+        import shutil
+        shutil.rmtree(trash_dir)
     return {"ok": True}
 
 
@@ -514,6 +566,14 @@ async def suggest_revisions(req: SuggestReq):
             suggestions.append({"text": "避免重复表达", "detail": issue.description, "icon": "🔁"})
         elif issue.rule == "EXCLAMATION":
             suggestions.append({"text": "减少感叹号", "detail": issue.description, "icon": "❗"})
+        elif issue.rule == "STRAW_MAN_QA":
+            suggestions.append({"text": "删除替读者问问题", "detail": "删除「你可能会问」等句式", "icon": "🙋"})
+        elif issue.rule == "BLESSING_ENDING":
+            suggestions.append({"text": "删除祝福式结尾", "detail": "删除「你值得」等套路结尾", "icon": "🙏"})
+        elif issue.rule == "STORY_OPENER":
+            suggestions.append({"text": "删除假故事开头", "detail": "删除「我有一个朋友」式开头", "icon": "📖"})
+        elif issue.rule == "EXPERT_TONE":
+            suggestions.append({"text": "去掉专家腔", "detail": "去掉「在XX领域」等说教语气", "icon": "🎓"})
 
     suggestions.append({"text": "开头更抓人", "detail": "让前3句更有冲击力，制造悬念或共鸣", "icon": "🎣"})
     suggestions.append({"text": "结尾加互动引导", "detail": "引导点赞、转发、评论", "icon": "💬"})

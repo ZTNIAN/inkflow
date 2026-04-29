@@ -59,13 +59,16 @@ class TestBuildStyleInstruction:
         pipeline = Pipeline.__new__(Pipeline)
         profile = StyleProfile(tone="温暖治愈", vocabulary=["确实", "其实"], sentence_patterns=["...的"], punctuation_habits="多用逗号")
         result = pipeline._build_style_instruction(profile)
-        assert "温暖治愈" in result
-        assert "确实" in result
+        assert isinstance(result, dict)
+        assert "system" in result
+        assert "user" in result
+        assert "温暖治愈" in result["system"]
+        assert "确实" in result["user"]
 
     def test_without_profile(self):
         pipeline = Pipeline.__new__(Pipeline)
         result = pipeline._build_style_instruction(None)
-        assert result == ""
+        assert result == {"system": "", "user": ""}
 
 
 class TestGetMaterialHint:

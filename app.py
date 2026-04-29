@@ -295,6 +295,13 @@ async def extract_style(
                 "vocabulary": profile.vocabulary, "sentence_patterns": profile.sentence_patterns,
                 "punctuation_habits": profile.punctuation_habits,
                 "sample_summary": profile.sample_summary,
+                # v2
+                "argument_logic": profile.argument_logic,
+                "rhetoric_preferences": profile.rhetoric_preferences,
+                "metaphor_source": profile.metaphor_source,
+                "interaction_mode": profile.interaction_mode,
+                "quant_metrics": profile.quant_metrics,
+                "sample_excerpts": profile.sample_excerpts,
             },
         }
     except Exception as e:

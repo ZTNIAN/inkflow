@@ -105,6 +105,18 @@ class StyleProfile:
     structure_style: str = ""
     sample_summary: str = ""
     raw_profile: str = ""
+    # v2: 思维指纹
+    argument_logic: str = ""
+    rhetoric_preferences: str = ""
+    metaphor_source: str = ""
+    # v2: 互动模式
+    interaction_mode: str = ""
+    reader_address: str = ""
+    ending_style: str = ""
+    # v2: 量化统计
+    quant_metrics: dict = field(default_factory=dict)
+    # v2: 原文范文
+    sample_excerpts: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -158,10 +170,124 @@ class Pipeline:
     # Step 0: 风格提取
     # ─────────────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _analyze_style_stats(samples: list[str]) -> dict:
+        """纯规则统计：句长、段落、标点、高频词、句首词（不调 LLM）"""
+        import collections
+        combined = "\n".join(samples)
+        text = combined.strip()
+        if not text:
+            return {}
+
+        # 停用词
+        stopwords = {"的", "了", "在", "是", "我", "有", "和", "就", "不", "人",
+                     "都", "一", "一个", "这", "那", "也", "要", "会", "可以",
+                     "很", "但", "还", "被", "到", "让", "没", "对", "去", "把",
+                     "从", "上", "下", "能", "做", "说", "为", "与", "之", "及"}
+
+        # 句子
+        sentences = [s.strip() for s in re.split(r'[。！？!?\n]', text) if len(s.strip()) > 2]
+        sentence_lens = [len(s) for s in sentences]
+        avg_sent_len = round(sum(sentence_lens) / len(sentence_lens), 1) if sentence_lens else 0
+        short_sent = sum(1 for l in sentence_lens if l <= 15)
+        short_pct = round(short_sent / len(sentence_lens) * 100, 1) if sentence_lens else 0
+
+        # 段落
+        paras = [p.strip() for p in re.split(r'\n{2,}', text) if len(p.strip()) > 10]
+        para_lens = [len(p) for p in paras]
+        avg_para_len = round(sum(para_lens) / len(para_lens), 1) if para_lens else 0
+
+        # 标点
+        total_punct = sum(1 for c in text if c in '，。！？、；：""''（）…—·')
+        q_marks = text.count('？') + text.count('?')
+        e_marks = text.count('！') + text.count('!')
+        punct_density = round(total_punct / len(text), 3) if text else 0
+        q_pct = round(q_marks / total_punct * 100, 1) if total_punct else 0
+        e_pct = round(e_marks / total_punct * 100, 1) if total_punct else 0
+
+        # 高频词
+        words = re.findall(r'[\u4e00-\u9fff]{2,}', text)
+        word_freq = collections.Counter(w for w in words if w not in stopwords)
+        top_words = [{"word": w, "count": c} for w, c in word_freq.most_common(15)]
+
+        # 句首高频词
+        openers = []
+        for s in sentences:
+            first_word = re.findall(r'[\u4e00-\u9fff]{2,}', s)
+            if first_word and first_word[0] not in stopwords:
+                openers.append(first_word[0])
+        opener_freq = collections.Counter(openers)
+        top_openers = [{"word": w, "count": c} for w, c in opener_freq.most_common(10)]
+
+        # 二元组
+        bigrams = collections.Counter()
+        for i in range(len(words) - 1):
+            pair = words[i] + words[i+1]
+            if words[i] not in stopwords and words[i+1] not in stopwords:
+                bigrams[pair] += 1
+        top_bigrams = [{"phrase": p, "count": c} for p, c in bigrams.most_common(10)]
+
+        return {
+            "avg_sentence_length": avg_sent_len,
+            "short_sentence_pct": short_pct,
+            "avg_paragraph_length": avg_para_len,
+            "punctuation_density": punct_density,
+            "question_mark_pct": q_pct,
+            "exclamation_pct": e_pct,
+            "top_words": top_words,
+            "top_openers": top_openers,
+            "top_bigrams": top_bigrams,
+        }
+
     def extract_style(self, samples: list[str], name: str = "我的风格") -> StyleProfile:
         combined = "\n\n---\n\n".join(s[:3000] for s in samples[:10])
 
-        prompt = f"""你是一位资深的写作教练。请分析以下 {len(samples)} 篇文章样本，提取作者的写作风格特征。
+        # 第一步：统计（纯规则，不调 LLM）
+        stats = self._analyze_style_stats(samples)
+
+        stats_summary = (
+            f"平均句长：{stats.get('avg_sentence_length', '?')}字\n"
+            f"短句占比：{stats.get('short_sentence_pct', '?')}%\n"
+            f"平均段长：{stats.get('avg_paragraph_length', '?')}字\n"
+            f"问号占比：{stats.get('question_mark_pct', '?')}%\n"
+            f"感叹号占比：{stats.get('exclamation_pct', '?')}%\n"
+            f"高频词：{'、'.join(w['word'] for w in stats.get('top_words', [])[:10])}\n"
+            f"常用开头：{'、'.join(w['word'] for w in stats.get('top_openers', [])[:5])}"
+        )
+
+        # 第二步：LLM 分析"神"——思维指纹 + 互动模式
+        soul_prompt = f"""你是一位资深的写作教练。请分析以下 {len(samples)} 篇文章样本，聚焦作者的「思维指纹」和「互动模式」。
+
+## 样本文章
+{combined}
+
+## 参考统计数据（帮助你验证判断）
+{stats_summary}
+
+请输出 JSON：
+{{
+  "argument_logic": "论证逻辑描述（如：先破后立、现象-本质-方案、层层递进）",
+  "rhetoric_preferences": "高频修辞手法（如：反问、排比、对比、反讽、类比）",
+  "metaphor_source": "主要隐喻来源领域（如：战争、商业、生活、自然、科技）",
+  "interaction_mode": "与读者的互动模式（如：我讲你听、咱们聊聊、设问引导）",
+  "tone": "整体语调描述（如：犀利理性、温暖治愈、幽默毒舌）",
+  "structure_style": "结构风格描述（如：总分总、故事开头+金句结尾）",
+  "sample_summary": "200字以内的风格总结"
+}}
+
+要求：
+1. 从实际文本中提炼，不要臆测
+2. argument_logic 解释作者如何组织观点，给出具体例子
+3. interaction_mode 说明作者和读者之间建立了什么关系"""
+
+        soul_resp = with_retry(lambda: self.llm.complete([
+            Message("system", "你是写作风格分析师，专注分析作者的思维方式和互动模式。只输出合法 JSON。"),
+            Message("user", soul_prompt),
+        ], temperature=0.3))
+        soul_data = parse_json(soul_resp.content)
+
+        # 第三步：LLM 提取"文"——原文范文 + 表层特征
+        text_prompt = f"""你是一位资深的写作教练。请分析以下 {len(samples)} 篇文章样本，提取写作风格特征。
 
 ## 样本文章
 {combined}
@@ -171,32 +297,45 @@ class Pipeline:
   "sentence_patterns": ["句式特征1", "句式特征2", ...],
   "vocabulary": ["惯用词1", "惯用词2", ...],
   "punctuation_habits": "标点使用习惯描述",
-  "tone": "整体语调描述（如：犀利理性、温暖治愈、幽默毒舌）",
-  "structure_style": "结构风格描述（如：总分总、故事开头+金句结尾）",
-  "sample_summary": "200字以内的风格总结"
+  "opening_excerpt": "从样本中挑选一段最有代表性的开头原文（不超过200字）",
+  "transition_excerpt": "从样本中挑选一段最有代表性的转折/过渡原文（不超过200字）",
+  "ending_excerpt": "从样本中挑选一段最有代表性的结尾原文（不超过200字）",
+  "dense_excerpt": "从样本中挑选一段最能体现其用词和句式特点的段落（不超过200字）"
 }}
 
 要求：
-1. 从实际文本中提取，不要臆测
+1. excerpt 字段必须是样本中的**原文**，不要改写，不要拼接
 2. vocabulary 至少列出 10 个高频词
 3. sentence_patterns 列出 3-5 个典型的句式模式"""
 
-        resp = with_retry(lambda: self.llm.complete([
-            Message("system", "你是写作风格分析师，只输出合法 JSON。"),
-            Message("user", prompt),
+        text_resp = with_retry(lambda: self.llm.complete([
+            Message("system", "你是写作风格分析师，擅长提取具体特征和原文片段。只输出合法 JSON。"),
+            Message("user", text_prompt),
         ], temperature=0.3))
+        text_data = parse_json(text_resp.content)
 
-        data = parse_json(resp.content)
         profile = StyleProfile(
             id=f"style_{uuid.uuid4().hex[:8]}",
             name=name,
-            sentence_patterns=data.get("sentence_patterns", []),
-            vocabulary=data.get("vocabulary", []),
-            punctuation_habits=data.get("punctuation_habits", ""),
-            tone=data.get("tone", ""),
-            structure_style=data.get("structure_style", ""),
-            sample_summary=data.get("sample_summary", ""),
-            raw_profile=json.dumps(data, ensure_ascii=False, indent=2),
+            sentence_patterns=text_data.get("sentence_patterns", []),
+            vocabulary=text_data.get("vocabulary", []),
+            punctuation_habits=text_data.get("punctuation_habits", ""),
+            tone=soul_data.get("tone", ""),
+            structure_style=soul_data.get("structure_style", ""),
+            sample_summary=soul_data.get("sample_summary", ""),
+            raw_profile=json.dumps({**soul_data, **text_data}, ensure_ascii=False, indent=2),
+            # v2 字段
+            argument_logic=soul_data.get("argument_logic", ""),
+            rhetoric_preferences=soul_data.get("rhetoric_preferences", ""),
+            metaphor_source=soul_data.get("metaphor_source", ""),
+            interaction_mode=soul_data.get("interaction_mode", ""),
+            quant_metrics=stats,
+            sample_excerpts={
+                "opening": text_data.get("opening_excerpt", ""),
+                "transition": text_data.get("transition_excerpt", ""),
+                "ending": text_data.get("ending_excerpt", ""),
+                "dense": text_data.get("dense_excerpt", ""),
+            },
         )
 
         style_dir = DATA_DIR / "styles"
@@ -510,16 +649,70 @@ JSON 格式示例：
     # 内部方法：构建风格指令
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _build_style_instruction(self, style_profile: StyleProfile | None) -> str:
+    def _build_style_instruction(self, style_profile: StyleProfile | None) -> dict:
+        """返回 {system, user} 两条风格指令。
+        system — 注入系统消息（核心人格、论证逻辑、量化指标、原文范文）
+        user   — 注入用户消息（额外要求）
+        """
         if not style_profile:
-            return ""
-        return f"""
-## 写作风格（必须严格模仿）
-- 语调：{style_profile.tone}
-- 惯用词：{'、'.join(style_profile.vocabulary[:10])}
-- 句式：{'；'.join(style_profile.sentence_patterns[:3])}
-- 标点：{style_profile.punctuation_habits}
-"""
+            return {"system": "", "user": ""}
+
+        system_parts = []
+        user_parts = []
+
+        # 系统层：核心人格 + 论证逻辑
+        system_parts.append(f"## 你必须模仿的写作风格\n核心人格：{style_profile.tone}")
+        if style_profile.argument_logic:
+            system_parts.append(f"论证逻辑：{style_profile.argument_logic}")
+        if style_profile.rhetoric_preferences:
+            system_parts.append(f"修辞偏好：{style_profile.rhetoric_preferences}")
+        if style_profile.interaction_mode:
+            system_parts.append(f"互动模式：{style_profile.interaction_mode}")
+
+        # 系统层：量化硬指标
+        qm = style_profile.quant_metrics or {}
+        metric_lines = []
+        if qm.get("avg_sentence_length"):
+            metric_lines.append(f"- 平均句长约 {qm['avg_sentence_length']} 字")
+        if qm.get("short_sentence_pct"):
+            metric_lines.append(f"- 短句（≤15字）占比约 {qm['short_sentence_pct']}%")
+        if qm.get("question_mark_pct"):
+            metric_lines.append(f"- 问号占比约 {qm['question_mark_pct']}%")
+        if qm.get("avg_paragraph_length"):
+            metric_lines.append(f"- 平均段长约 {qm['avg_paragraph_length']} 字")
+        if qm.get("top_words"):
+            metric_lines.append(f"- 高频词：{'、'.join(w['word'] for w in qm['top_words'][:8])}")
+        if qm.get("top_openers"):
+            metric_lines.append(f"- 常用开头：{'、'.join(w['word'] for w in qm['top_openers'][:5])}")
+        if metric_lines:
+            system_parts.append(f"## 量化硬指标（必须遵守）\n" + "\n".join(metric_lines))
+
+        # 系统层：原文范文
+        ex = style_profile.sample_excerpts or {}
+        excerpt_lines = []
+        if ex.get("opening"):
+            excerpt_lines.append(f"### 开头示例\n{ex['opening']}")
+        if ex.get("transition"):
+            excerpt_lines.append(f"### 过渡示例\n{ex['transition']}")
+        if ex.get("ending"):
+            excerpt_lines.append(f"### 结尾示例\n{ex['ending']}")
+        if ex.get("dense"):
+            excerpt_lines.append(f"### 风格范本\n{ex['dense']}")
+        if excerpt_lines:
+            system_parts.append(f"## 原文范文（模仿这个味道）\n" + "\n\n".join(excerpt_lines))
+
+        # 用户层：表层特征
+        if style_profile.vocabulary:
+            user_parts.append(f"惯用词：{'、'.join(style_profile.vocabulary[:10])}")
+        if style_profile.sentence_patterns:
+            user_parts.append(f"句式特征：{'；'.join(style_profile.sentence_patterns[:3])}")
+        if style_profile.punctuation_habits:
+            user_parts.append(f"标点习惯：{style_profile.punctuation_habits}")
+
+        return {
+            "system": "\n\n".join(system_parts) if system_parts else "",
+            "user": "\n".join(user_parts) if user_parts else "",
+        }
 
     def _get_material_hint(self, material: dict | None, index: int) -> str:
         if not material:
@@ -532,7 +725,10 @@ JSON 格式示例：
         return ""
 
     def _generate_hook(self, topic: str, title: str, hook_design: str,
-                       platform: str, style_instruction: str) -> str:
+                       platform: str, style_instruction: dict) -> str:
+        si = style_instruction or {}
+        system_extra = si.get("system", "")
+        user_extra = si.get("user", "")
         prompt = f"""你是一位顶尖的{platform}写手，粉丝50万+，以「说人话」著称。请为以下文章写一个抓人的开头。
 
 ## 标题
@@ -543,7 +739,7 @@ JSON 格式示例：
 
 ## 主题
 {topic}
-{style_instruction}
+{user_extra}
 ## 写作要求（这是爆款文章，不是公文）
 1. 用「你」开头或第二人称视角，像跟朋友聊天一样
 2. 第一句话就要制造「停顿感」——可以是反常识的数据、一个扎心的提问、或一个让人共鸣的场景
@@ -557,15 +753,22 @@ JSON 格式示例：
    - 抛一个尖锐的问题："如果结婚是一笔投资，年化收益是多少？"
 5. 字数 150-300 字，只输出正文，不要任何标注或解释"""
 
+        sys_msg = f"你是一位{platform}爆款写手，50万粉丝，风格犀利、真诚、接地气。你写的东西不像AI，像一个有阅历的朋友在跟你掏心窝子。直接输出正文，不要任何标注。"
+        if system_extra:
+            sys_msg += f"\n\n{system_extra}"
+
         resp = self.llm.complete([
-            Message("system", f"你是一位{platform}爆款写手，50万粉丝，风格犀利、真诚、接地气。你写的东西不像AI，像一个有阅历的朋友在跟你掏心窝子。直接输出正文，不要任何标注。"),
+            Message("system", sys_msg),
             Message("user", prompt),
         ], temperature=0.85)
         return resp.content.strip()
 
     def _generate_section(self, topic: str, title: str, section: dict,
                           prev_tail: str, all_sections: list, platform: str,
-                          style_instruction: str, material_hint: str) -> str:
+                          style_instruction: dict, material_hint: str) -> str:
+        si = style_instruction or {}
+        system_extra = si.get("system", "")
+        user_extra = si.get("user", "")
         prompt = f"""继续写文章的下一部分。你是一位有50万粉丝的{platform}写手，风格真诚、接地气、有观点。
 
 ## 标题
@@ -583,7 +786,7 @@ JSON 格式示例：
 ## 全文大纲（了解全局位置）
 {' → '.join(s.get('title', '') for s in all_sections)}
 {material_hint}
-{style_instruction}
+{user_extra}
 ## 写作要求（爆款标准，不是写报告）
 1. 像朋友聊天一样写，用「你」称呼读者，偶尔用「我」带入自己的视角
 2. 每个观点必须配一个具体的案例或数据——不要泛泛而谈
@@ -595,15 +798,22 @@ JSON 格式示例：
 8. 严格控制在 {section.get('word_budget', 500)} 字左右（±10%），不要写太多
 9. 只输出正文，不要任何标注"""
 
+        sys_msg = f"你是一位{platform}爆款写手，50万粉丝。你的文章特点是：说人话、有故事、有观点、不啰嗦。读者看完会转发给朋友说「这篇写得太对了」。严格控制字数，不要写多了。直接输出正文。"
+        if system_extra:
+            sys_msg += f"\n\n{system_extra}"
+
         resp = self.llm.complete([
-            Message("system", f"你是一位{platform}爆款写手，50万粉丝。你的文章特点是：说人话、有故事、有观点、不啰嗦。读者看完会转发给朋友说「这篇写得太对了」。严格控制字数，不要写多了。直接输出正文。"),
+            Message("system", sys_msg),
             Message("user", prompt),
         ], temperature=0.85, max_tokens=min(4096, int(section.get('word_budget', 500)) * 3))
         return resp.content.strip()
 
     def _generate_ending(self, topic: str, title: str, cta: str,
                          tags: list, prev_tail: str, platform: str,
-                         style_instruction: str) -> str:
+                         style_instruction: dict) -> str:
+        si = style_instruction or {}
+        system_extra = si.get("system", "")
+        user_extra = si.get("user", "")
         prompt = f"""写文章的结尾部分。你是一位有50万粉丝的{platform}写手。
 
 ## 标题
@@ -617,7 +827,7 @@ JSON 格式示例：
 
 ## 标签
 {' '.join('#' + t for t in tags)}
-{style_instruction}
+{user_extra}
 ## 写作要求
 1. 不要"总而言之"、"综上所述"、"最后"这种总结式开头
 2. 用一个短句或金句收尾，要有力量感——让人读完想转发
@@ -628,8 +838,12 @@ JSON 格式示例：
 5. 严格控制在 100-150 字，不要写太长，结尾要干脆利落
 6. 只输出正文，不要任何标注"""
 
+        sys_msg = f"你是{platform}爆款写手，擅长写出让人想转发的结尾。你的结尾不煽情、不说教，但就是让人忍不住想分享。结尾要短、有力、干脆。直接输出正文。"
+        if system_extra:
+            sys_msg += f"\n\n{system_extra}"
+
         resp = self.llm.complete([
-            Message("system", f"你是{platform}爆款写手，擅长写出让人想转发的结尾。你的结尾不煽情、不说教，但就是让人忍不住想分享。结尾要短、有力、干脆。直接输出正文。"),
+            Message("system", sys_msg),
             Message("user", prompt),
         ], temperature=0.85, max_tokens=1024)
         return resp.content.strip()
@@ -648,7 +862,9 @@ JSON 格式示例：
         style_profile: StyleProfile | None = None,
         section_title: str = "",
     ) -> str:
-        style_instruction = self._build_style_instruction(style_profile)
+        si = self._build_style_instruction(style_profile)
+        system_extra = si.get("system", "")
+        user_extra = si.get("user", "")
 
         outline_context = ""
         if outline:
@@ -673,7 +889,7 @@ JSON 格式示例：
 ## 要求修订的小节
 「{section_title}」
 
-{style_instruction}
+{user_extra}
 ## 修订规则
 1. 只修改「{section_title}」小节的内容，其他小节保持原样
 2. 保持与上文和下文的衔接自然
@@ -691,7 +907,7 @@ JSON 格式示例：
 ## 用户修改意见
 {instruction}
 
-{style_instruction}
+{user_extra}
 ## 修订规则
 1. 认真理解用户的修改意见，针对性修改
 2. 保持文章整体结构和风格一致
@@ -700,8 +916,12 @@ JSON 格式示例：
 5. 不要出现多个"最后一句"或重复收尾
 6. 直接输出修订后的完整全文，不要加任何标注或说明"""
 
+        sys_msg = f"你是{platform}资深编辑，擅长根据反馈精准修改文章。直接输出修订后的全文。"
+        if system_extra:
+            sys_msg += f"\n\n{system_extra}"
+
         resp = with_retry(lambda: self.llm.complete([
-            Message("system", f"你是{platform}资深编辑，擅长根据反馈精准修改文章。直接输出修订后的全文。"),
+            Message("system", sys_msg),
             Message("user", prompt),
         ], temperature=0.5))
 
@@ -933,7 +1153,9 @@ JSON 格式示例：
             raise ValueError(f"无效的小节索引：{section_index}")
 
         section = sections[section_index]
-        style_instruction = self._build_style_instruction(style_profile)
+        si = self._build_style_instruction(style_profile)
+        system_extra = si.get("system", "")
+        user_extra = si.get("user", "")
         material_hint = self._get_material_hint(material, section_index)
 
         # 从当前内容中提取该小节前后的文本
@@ -976,7 +1198,7 @@ JSON 格式示例：
 ## 全文大纲（了解全局位置）
 {' → '.join(s.get('title', '') for s in sections)}
 {material_hint}
-{style_instruction}
+{user_extra}
 ## 要求
 1. 承接上文语气，不要突兀跳转
 2. 结尾要能与下文自然衔接
@@ -984,8 +1206,12 @@ JSON 格式示例：
 4. 只输出本节正文，不要输出其他小节
 5. 不要输出任何标注或说明"""
 
+        sys_msg = f"你是{platform}写手，擅长重写单个小节并保持全文连贯。直接输出正文。"
+        if system_extra:
+            sys_msg += f"\n\n{system_extra}"
+
         resp = self.llm.complete([
-            Message("system", f"你是{platform}写手，擅长重写单个小节并保持全文连贯。直接输出正文。"),
+            Message("system", sys_msg),
             Message("user", prompt),
         ], temperature=0.8)
 

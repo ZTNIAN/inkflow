@@ -131,14 +131,20 @@ class Validator:
         issues: list[Issue] = []
         word_count = len(content)
 
+        # 平台相关阈值
+        ai_marker_window = 3000 if platform == "wechat" else 2000
+        para_limit = 300 if platform == "wechat" else 200
+        filler_limit = 3 if platform == "wechat" else 2
+        excl_limit = 5 if platform == "wechat" else 3
+
         # 1. AI 标记词密度
         for w in AI_MARKERS:
             count = len(re.findall(w, content))
             if count == 0: continue
-            per_3k = (count / word_count) * 3000 if word_count > 0 else 0
-            if per_3k > 1:
+            per_window = (count / word_count) * ai_marker_window if word_count > 0 else 0
+            if per_window > 1:
                 issues.append(Issue("AI_MARKER", "warning",
-                    f"「{w}」出现 {count} 次（每3000字 {per_3k:.1f}，上限1）", w))
+                    f"「{w}」出现 {count} 次（每{ai_marker_window}字 {per_window:.1f}，上限1）", w))
 
         # 2. 禁止句式
         for p in FORBIDDEN_PHRASES:
@@ -191,9 +197,9 @@ class Validator:
 
         # 8. 段落过长
         paras = [p for p in re.split(r"\n{2,}", content) if p.strip()]
-        long = [p for p in paras if len(p) > 300]
+        long = [p for p in paras if len(p) > para_limit]
         if len(long) >= 2:
-            issues.append(Issue("LONG_PARA", "warning", f"{len(long)}个段落超300字，影响手机阅读"))
+            issues.append(Issue("LONG_PARA", "warning", f"{len(long)}个段落超{para_limit}字，影响{platform}阅读"))
 
         # 9. 连续"了"字
         sentences = re.split(r"[。！？!?]", content)
@@ -210,7 +216,7 @@ class Validator:
 
         # 10. AI 填充词密度过高
         filler_count = sum(1 for f in AI_FILLER if f in content)
-        if filler_count >= 3:
+        if filler_count >= filler_limit:
             issues.append(Issue("AI_FILLER", "warning",
                 f"AI 套话/连接词过多（{filler_count}处），建议精简"))
 
@@ -223,9 +229,9 @@ class Validator:
 
         # 12. 感叹号过多
         excl_count = content.count("！") + content.count("!")
-        if excl_count > 5:
+        if excl_count > excl_limit:
             issues.append(Issue("EXCLAMATION", "warning",
-                f"感叹号过多（{excl_count}个），公众号读者不喜欢大喊大叫"))
+                f"感叹号过多（{excl_count}个，{'公众号' if platform=='wechat' else '头条'}读者不喜欢大喊大叫"))
 
         # 13. 段落缺少变化（全是短段或全是长段）
         if paras and len(paras) >= 4:

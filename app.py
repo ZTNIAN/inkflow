@@ -272,7 +272,7 @@ async def extract_style(
     files: list[UploadFile] = File(...),
 ):
     samples = []
-    for f in files[:5]:
+    for f in files[:10]:
         content = await f.read()
         try:
             text = content.decode("utf-8")
@@ -298,6 +298,7 @@ async def extract_style(
             },
         }
     except Exception as e:
+        import traceback; traceback.print_exc()
         raise HTTPException(500, f"风格提取失败：{e}")
 
 

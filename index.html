@@ -772,7 +772,7 @@ function showSettings() {
         <div class="form-group">
           <label class="form-label">上传样本文章（.txt / .md）</label>
           <input type="file" id="styleFiles" multiple accept=".txt,.md,.text" style="font-size:12px;color:var(--text2)">
-          <div class="form-hint">上传 3-5 篇你写过的文章，AI 会提取你的写作风格</div>
+          <div class="form-hint">上传 3-10 篇你写过的文章，AI 会提取你的写作风格（最多 10 篇）</div>
         </div>
         <div class="form-group">
           <label class="form-label">风格名称</label>
@@ -1856,6 +1856,8 @@ async function runAudit() {
           ['sensitive_words', '⚠️ 敏感词', d.sensitive_words],
           ['content_quality', '📝 内容质量', d.content_quality],
           ['readability', '📱 可读性', d.readability],
+          ['cognitive_gap', '🧠 认知差', d.cognitive_gap],
+          ['expression_efficiency', '📦 表达效率', d.expression_efficiency],
           ['engagement', '🎣 互动性', d.engagement],
           ['platform_fit', '📱 平台适配', d.platform_fit],
         ];

@@ -159,7 +159,7 @@ class Pipeline:
     # ─────────────────────────────────────────────────────────────────────────
 
     def extract_style(self, samples: list[str], name: str = "我的风格") -> StyleProfile:
-        combined = "\n\n---\n\n".join(s[:3000] for s in samples[:5])
+        combined = "\n\n---\n\n".join(s[:3000] for s in samples[:10])
 
         prompt = f"""你是一位资深的写作教练。请分析以下 {len(samples)} 篇文章样本，提取作者的写作风格特征。
 
@@ -1077,6 +1077,22 @@ JSON 格式示例：
       "score": 80,
       "word_count_ok": true,
       "tone_match": true,
+      "issues": ["问题1"],
+      "suggestions": ["建议1"]
+    }},
+    "cognitive_gap": {{
+      "score": 75,
+      "level": "高/中/低",
+      "info_increment": "和同赛道内容相比，信息增量是否足够？读者看完会觉得「这我知道」还是「原来如此」？",
+      "unique_angle": "是否有独特的切入角度，还是老生常谈？",
+      "issues": ["问题1"],
+      "suggestions": ["建议1"]
+    }},
+    "expression_efficiency": {{
+      "score": 75,
+      "core_point_clarity": "核心观点能否一句话说清？读者读完第一段知道这篇文章在讲什么吗？",
+      "packaging_ratio": "有没有「99%包装1%内容」的问题——大量铺垫/修饰/套话，真正有信息量的内容很少？",
+      "redundancy": "是否存在冗余表达、重复论证、不必要的举例？",
       "issues": ["问题1"],
       "suggestions": ["建议1"]
     }}

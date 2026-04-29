@@ -38,6 +38,36 @@ AI_FILLER = [
     "值得注意的是", "需要指出的是", "不可否认",
     "在这个过程中", "在当今社会", "随着...的发展",
     "让我们一起来看看", "接下来让我们",
+    "值得一提的是", "话不多说", "毫不夸张地说",
+    "有一说一", "讲真，", "客观来说",
+    "从这个角度来说", "从这个层面来看",
+]
+
+# ── 替读者问傻问题（AI 常见套路）──
+STRAW_MAN_QA_PATTERNS = [
+    r"你可能会[问想]", r"你一定会[问说]",
+    r"你可能会有疑问", r"也许你会[问想]",
+    r"肯定会有人[问说]", r"有人可能会[问说]",
+]
+
+# ── "你值得"式祝福结尾 ──
+BLESSING_ENDING_PATTERNS = [
+    r"你值得[更好的更美的一切的拥有]",
+    r"愿你[^。！？\n]{3,30}(?:世界|美好|温柔|幸福)",
+    r"祝[^。！？\n]{3,30}(?:好运|顺利|美好)",
+]
+
+# ── 假故事开头 ──
+STORY_OPENER_PATTERNS = [
+    r"我(?:有|的)一个朋友", r"我(?:有个|有一位|认识一个)朋友",
+    r"之前(?:我|有)一个[客户学员读者]",
+]
+
+# ── 专家腔 ──
+EXPERT_TONE_PATTERNS = [
+    r"在[^。，]{2,10}(?:领域|行业)(?:中|里|内)",
+    r"从专业角度[来说来看而言]", r"从专业的[角度|层面][来说来看而言]",
+    r"作为(?:一个|一名)[^。，]{2,10}(?:人士|从业者|专家)",
 ]
 
 # ── 元叙事 / 说教 ──
@@ -206,6 +236,34 @@ class Validator:
             if short_count == 0 and long_count == 0 and len(set(lengths)) <= 2:
                 issues.append(Issue("MONOTONE", "warning",
                     "段落长度过于单调，建议长短交替增加节奏感"))
+
+        # 14. 替读者问傻问题（dbs-ai-check #7）
+        for pat in STRAW_MAN_QA_PATTERNS:
+            m = re.findall(pat, content)
+            if m:
+                issues.append(Issue("STRAW_MAN_QA", "warning",
+                    f"AI 套路：替读者问问题「{m[0]}」", m[0]))
+
+        # 15. "你值得"式祝福结尾（dbs-ai-check #21）
+        for pat in BLESSING_ENDING_PATTERNS:
+            m = re.findall(pat, content)
+            if m:
+                issues.append(Issue("BLESSING_ENDING", "warning",
+                    f"AI 套路：祝福式结尾「{m[0]}」", m[0]))
+
+        # 16. 假故事开头（dbs-ai-check #20）
+        for pat in STORY_OPENER_PATTERNS:
+            m = re.findall(pat, content)
+            if m:
+                issues.append(Issue("STORY_OPENER", "warning",
+                    f"AI 套路：假故事开头「{m[0]}」", m[0]))
+
+        # 17. 专家腔（dbs-ai-check #6）
+        for pat in EXPERT_TONE_PATTERNS:
+            m = re.findall(pat, content)
+            if m:
+                issues.append(Issue("EXPERT_TONE", "warning",
+                    f"专家腔/说教语气：「{m[0]}」", m[0]))
 
         error_count = sum(1 for i in issues if i.severity == "error")
         warning_count = sum(1 for i in issues if i.severity == "warning")

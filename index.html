@@ -720,6 +720,8 @@ async function loadArticle(id) {
       updateWordIndicator(data.content.length);
       if (data.validation) showValidation(data.validation);
       setTimeout(() => loadSuggestions(), 300);
+      document.getElementById('contentLoading').style.display = 'none';
+      document.getElementById('contentResult').style.display = 'block';
       if (data.html) {
         document.getElementById('previewBox').innerHTML = data.html;
         document.getElementById('htmlOutput').value = data.html;
@@ -732,6 +734,8 @@ async function loadArticle(id) {
     if (data.outline && data.outline.sections && data.outline.sections.length) {
       try {
         renderOutline(data.outline);
+        document.getElementById('outlineLoading').style.display = 'none';
+        document.getElementById('outlineContent').style.display = 'block';
         console.log('renderOutline OK');
       } catch(e) {
         console.error('renderOutline error:', e);

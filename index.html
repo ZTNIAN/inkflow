@@ -447,6 +447,17 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
 
           <div id="validationResult"></div>
 
+          <div id="auditPanel" style="margin-top:12px">
+            <div class="card">
+              <div class="card-title">🔍 文章审计（六维度 + AI 全文扫描）</div>
+              <div id="auditResult" style="font-size:13px;color:var(--text2)">点击「开始审计」获取全方位质量报告</div>
+              <div class="btn-group" style="margin-top:12px">
+                <button class="btn" onclick="runAudit()">🔍 全面审计</button>
+                <button class="btn btn-primary" onclick="applyAuditFixes()">📝 按审计结果一键修改</button>
+              </div>
+            </div>
+          </div>
+
           <div class="card" id="revisePanel">
             <div class="card-title">🔄 AI 修订（人机共创）</div>
             <div id="suggestArea" style="margin-bottom:14px">
@@ -487,7 +498,6 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
           <div class="tab" onclick="switchExportTab('text', this)">📝 纯文本</div>
           <div class="tab" onclick="switchExportTab('images', this)">🖼️ 配图</div>
           <div class="tab" onclick="switchExportTab('seo', this)">📊 SEO</div>
-          <div class="tab" onclick="switchExportTab('audit', this)">🔍 审计</div>
         </div>
 
         <!-- 排版风格选择 -->
@@ -527,12 +537,6 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
             <div id="seoResult" style="font-size:13px;color:var(--text2)">点击「分析 SEO」获取优化建议</div>
           </div>
         </div>
-        <div id="exportAudit" style="display:none">
-          <div class="card">
-            <div class="card-title">🔍 文章审计报告</div>
-            <div id="auditResult" style="font-size:13px;color:var(--text2)">点击「开始审计」获取全方位质量报告</div>
-          </div>
-        </div>
 
         <div class="btn-group" style="margin-top:12px">
           <button class="btn btn-primary" onclick="formatAndPreview()">📐 生成排版</button>
@@ -541,7 +545,6 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
           <button class="btn" onclick="exportWord()">📄 导出 Word</button>
           <button class="btn" onclick="suggestImages()">🖼️ 配图建议</button>
           <button class="btn" onclick="analyzeSeo()">📊 SEO 分析</button>
-          <button class="btn" onclick="runAudit()">🔍 全面审计</button>
           <button class="btn btn-success" onclick="saveArticle()">💾 保存 <span class="kbd">Ctrl+S</span></button>
         </div>
       </div>
@@ -1891,12 +1894,7 @@ async function runAudit() {
         ${dims}
         ${topFixes ? `<div style="margin-top:12px"><strong>🔧 最重要的修改：</strong>${topFixes}</div>` : ''}
         ${validatorIssues ? `<div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:8px"><strong style="font-size:12px">验证器检测到的问题：</strong>${validatorIssues}</div>` : ''}
-        <div style="margin-top:16px;text-align:center">
-          <button class="btn btn-primary" onclick="applyAuditFixes()">📝 按审计结果一键修改</button>
-        </div>
       `;
-      const auditTab = document.querySelector('.tab[onclick*="audit"]');
-      if (auditTab) switchExportTab('audit', auditTab);
       toast('审计完成');
     }
   } catch(e) { toast('审计失败: ' + e.message, 'error'); }

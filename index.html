@@ -682,7 +682,7 @@ async function loadArticle(id) {
     const resp = await fetch(`/api/articles/${id}`);
     if (!resp.ok) { toast('加载失败: 文章不存在', 'error'); return; }
     const data = await resp.json();
-    console.log('loadArticle:', { id, hasContent: !!data.content, contentLen: (data.content||'').length, hasOutline: !!data.outline, sectionsCount: data.outline?.sections?.length, hasHtml: !!data.html });
+    console.log('loadArticle:', id, 'hasContent:', !!data.content, 'contentLen:', (data.content||'').length, 'hasOutline:', !!data.outline, 'sections:', data.outline?.sections?.length, 'hasHtml:', !!data.html);
     currentArticle = {
       id: data.id, topic: data.topic, platform: data.platform, mode: data.mode,
       sourceText: data.source_text || '', material: data.material || null,
@@ -744,7 +744,6 @@ async function loadArticle(id) {
     showStep(currentStep);
     console.log('loadArticle done, step:', currentStep);
   } catch(e) { toast('加载失败: ' + e.message, 'error'); console.error(e); }
-}
 }
 
 function goStep(n) {

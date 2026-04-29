@@ -48,6 +48,18 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-item .item-actions button{padding:2px 6px;font-size:10px;border-radius:4px;
 background:var(--surface);border:1px solid var(--border);color:var(--text3);cursor:pointer}
 .sidebar-item .item-actions button:hover{color:var(--text);border-color:var(--text3)}
+.sidebar-item.batch-mode{padding-left:8px}
+.article-checkbox{margin-right:8px;width:14px;height:14px;cursor:pointer;accent-color:var(--blue);flex-shrink:0;vertical-align:middle}
+.platform-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:500;white-space:nowrap}
+.platform-badge.wechat{background:var(--green-bg);color:var(--green)}
+.platform-badge.toutiao{background:var(--blue-bg);color:var(--blue)}
+.batch-bar{display:none;padding:10px 14px;border-top:1px solid var(--border);background:var(--bg2);gap:6px;align-items:center;flex-wrap:wrap}
+.batch-bar.show{display:flex}
+.batch-bar .count{font-size:11px;color:var(--text3);flex:1}
+.platform-filter{display:flex;gap:4px;padding:6px 12px;border-bottom:1px solid var(--border)}
+.platform-filter button{font-size:11px;padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer}
+.platform-filter button.active{background:var(--blue-bg);color:var(--blue);border-color:var(--blue)}
+.platform-filter button:hover{color:var(--text)}
 
 /* ── 右侧内容区 ── */
 .content{flex:1;overflow-y:auto;padding:24px 32px}
@@ -228,7 +240,15 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
 <div class="main">
   <!-- 左侧：文章列表 -->
   <div class="sidebar">
-    <div class="sidebar-header">📝 文章列表</div>
+    <div class="sidebar-header" style="display:flex;justify-content:space-between;align-items:center">
+      <span>📝 文章列表</span>
+      <button class="btn btn-sm" onclick="toggleBatchMode()" id="batchToggleBtn" style="font-size:11px">☑ 批量</button>
+    </div>
+    <div class="platform-filter" id="platformFilter">
+      <button class="active" data-platform="" onclick="filterByPlatform(this)">全部</button>
+      <button data-platform="wechat" onclick="filterByPlatform(this)">📱 公众号</button>
+      <button data-platform="toutiao" onclick="filterByPlatform(this)">📰 头条</button>
+    </div>
     <div id="tagFilter" style="padding:8px 12px;border-bottom:1px solid var(--border);display:none">
       <div style="font-size:11px;color:var(--text3);margin-bottom:4px">🏷️ 标签筛选</div>
       <div id="tagList" style="display:flex;flex-wrap:wrap;gap:4px"></div>
@@ -238,6 +258,14 @@ border-radius:4px;font-size:10px;font-family:monospace;color:var(--text3);margin
         <div style="font-size:28px;margin-bottom:8px">📄</div>
         <div style="font-size:12px">还没有文章<br>点击「+ 新文章」开始</div>
       </div>
+    </div>
+    <div class="batch-bar" id="batchBar">
+      <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px">
+        <input type="checkbox" onchange="selectAllArticles(this.checked)" style="accent-color:var(--blue)"> 全选
+      </label>
+      <span class="count" id="batchCount">已选 0 篇</span>
+      <button class="btn btn-sm" onclick="batchCopySelected()" style="font-size:11px">📋 批量复制</button>
+      <button class="btn btn-sm btn-danger" onclick="batchDeleteSelected()" style="font-size:11px">🗑 批量删除</button>
     </div>
   </div>
 
@@ -569,6 +597,8 @@ let autoSaveTimer = null;
 let isGenerating = false;
 let useStreamMode = true; // 默认使用流式模式
 let lastAuditData = null; // 上次审计结果，供一键修订用
+let batchMode = false;      // 批量操作模式
+let platformFilter = '';    // 当前平台筛选
 
 // 字数目标
 const WORD_TARGETS = {
@@ -622,15 +652,20 @@ async function loadArticles() {
       return;
     }
     list.innerHTML = articles.map(a => `
-      <div class="sidebar-item" onclick="loadArticle('${a.id}')">
-        <div class="item-title">${a.title || a.topic}</div>
-        <div class="item-meta">
-          <span>${a.platform === 'wechat' ? '📱' : '📰'}</span>
-          <span>${a.word_count || 0}字</span>
-          <span>${a.score ? '得分'+a.score : ''}</span>
-          <div class="item-actions">
-            <button onclick="event.stopPropagation();copyArticle('${a.id}')" title="复制">📋</button>
-            <button onclick="event.stopPropagation();deleteArticleConfirm('${a.id}')" title="删除">🗑️</button>
+      <div class="sidebar-item${batchMode ? ' batch-mode' : ''}" onclick="loadArticle('${a.id}')">
+        <div style="display:flex;align-items:flex-start;gap:4px">
+          ${batchMode ? `<input type="checkbox" class="article-checkbox" data-id="${a.id}" onclick="event.stopPropagation();updateBatchCount()">` : ''}
+          <div style="flex:1;min-width:0">
+            <div class="item-title">${a.title || a.topic}</div>
+            <div class="item-meta">
+              <span class="platform-badge ${a.platform}">${a.platform === 'wechat' ? '📱 公众号' : '📰 头条'}</span>
+              <span>${a.word_count || 0}字</span>
+              <span>${a.score ? '得分'+a.score : ''}</span>
+              <div class="item-actions">
+                <button onclick="event.stopPropagation();copyArticle('${a.id}')" title="复制">📋</button>
+                <button onclick="event.stopPropagation();deleteArticleConfirm('${a.id}')" title="删除">🗑️</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2064,8 +2099,87 @@ async function copyArticle(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 删除文章（带确认）
+// 批量操作
 // ═══════════════════════════════════════════════════════════════════════════
+function toggleBatchMode() {
+  batchMode = !batchMode;
+  document.getElementById('batchToggleBtn').textContent = batchMode ? '☑ 退出批量' : '☑ 批量';
+  document.getElementById('batchBar').classList.toggle('show', batchMode);
+  if (!batchMode) exitBatchMode();
+  loadArticles();
+  renderTagList();
+}
+
+function exitBatchMode() {
+  document.querySelectorAll('.article-checkbox').forEach(c => c.checked = false);
+  document.getElementById('batchCount').textContent = '已选 0 篇';
+}
+
+function updateBatchCount() {
+  const checked = document.querySelectorAll('.article-checkbox:checked').length;
+  document.getElementById('batchCount').textContent = `已选 ${checked} 篇`;
+}
+
+function selectAllArticles(checked) {
+  document.querySelectorAll('.article-checkbox').forEach(c => c.checked = checked);
+  updateBatchCount();
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.article-checkbox:checked')).map(c => c.dataset.id);
+}
+
+async function batchDeleteSelected() {
+  const ids = getSelectedIds();
+  if (!ids.length) { toast('请先选择文章', 'error'); return; }
+  if (!confirm(`确定要删除选中的 ${ids.length} 篇文章吗？`)) return;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      await fetch(`/api/articles/${id}`, { method: 'DELETE' });
+      ok++;
+    } catch(e) { fail++; }
+  }
+  toast(`批量删除完成：${ok} 篇成功${fail ? '，'+fail+' 篇失败' : ''}`);
+  if (ids.includes(currentArticle.id)) {
+    document.getElementById('welcomeView').style.display = 'block';
+    document.getElementById('articleView').style.display = 'none';
+  }
+  loadArticles();
+}
+
+async function batchCopySelected() {
+  const ids = getSelectedIds();
+  if (!ids.length) { toast('请先选择文章', 'error'); return; }
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      const resp = await fetch(`/api/articles/${id}/copy`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.ok) ok++; else fail++;
+    } catch(e) { fail++; }
+  }
+  toast(`批量复制完成：${ok} 篇成功${fail ? '，'+fail+' 篇失败' : ''}`);
+  loadArticles();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 平台筛选
+// ═══════════════════════════════════════════════════════════════════════════
+async function filterByPlatform(btn) {
+  document.querySelectorAll('.platform-filter button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  platformFilter = btn.dataset.platform;
+  if (platformFilter) {
+    const resp = await fetch('/api/articles');
+    const all = await resp.json();
+    const filtered = all.filter(a => a.platform === platformFilter);
+    renderArticleList(filtered);
+  } else {
+    loadArticles();
+  }
+  renderTagList();
+}
 async function deleteArticleConfirm(id) {
   if (!confirm('确定要删除这篇文章吗？')) return;
   try {
@@ -2292,18 +2406,23 @@ function renderArticleList(articles) {
     return;
   }
   list.innerHTML = articles.map(a => `
-    <div class="sidebar-item" onclick="loadArticle('${a.id}')">
-      <div class="item-title">${a.title || a.topic}</div>
-      <div class="item-meta">
-        <span>${a.platform === 'wechat' ? '📱' : '📰'}</span>
-        <span>${a.word_count || 0}字</span>
-        <span>${a.score ? '得分'+a.score : ''}</span>
-        <div class="item-actions">
-          <button onclick="event.stopPropagation();copyArticle('${a.id}')" title="复制">📋</button>
-          <button onclick="event.stopPropagation();deleteArticleConfirm('${a.id}')" title="删除">🗑️</button>
+    <div class="sidebar-item${batchMode ? ' batch-mode' : ''}" onclick="loadArticle('${a.id}')">
+      <div style="display:flex;align-items:flex-start;gap:4px">
+        ${batchMode ? `<input type="checkbox" class="article-checkbox" data-id="${a.id}" onclick="event.stopPropagation();updateBatchCount()">` : ''}
+        <div style="flex:1;min-width:0">
+          <div class="item-title">${a.title || a.topic}</div>
+          <div class="item-meta">
+            <span class="platform-badge ${a.platform}">${a.platform === 'wechat' ? '📱 公众号' : '📰 头条'}</span>
+            <span>${a.word_count || 0}字</span>
+            <span>${a.score ? '得分'+a.score : ''}</span>
+            <div class="item-actions">
+              <button onclick="event.stopPropagation();copyArticle('${a.id}')" title="复制">📋</button>
+              <button onclick="event.stopPropagation();deleteArticleConfirm('${a.id}')" title="删除">🗑️</button>
+            </div>
+          </div>
         </div>
       </div>
-      ${a.tags && a.tags.length ? `<div style="margin-top:4px">${a.tags.map(t=>`<span class="tag" style="font-size:10px;padding:1px 6px">${t}</span>`).join('')}</div>` : ''}
+      ${a.tags && a.tags.length ? `<div style="margin-top:4px;padding-left:26px">${a.tags.map(t=>`<span class="tag" style="font-size:10px;padding:1px 6px">${t}</span>`).join('')}</div>` : ''}
     </div>
   `).join('');
 }

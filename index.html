@@ -674,6 +674,8 @@ function showNewArticle() {
 }
 
 async function loadArticle(id) {
+  clearAutoSave();
+  document.getElementById('contentEditor').value = '';
   try {
     const resp = await fetch(`/api/articles/${id}`);
     const data = await resp.json();

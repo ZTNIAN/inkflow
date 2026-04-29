@@ -720,12 +720,15 @@ async function loadArticle(id) {
         document.getElementById('textOutput').value = data.content;
       }
       currentStep = data.html ? 5 : 4;
-    } else if (data.outline && data.outline.sections && data.outline.sections.length) {
-      currentStep = 3;
+    }
+
+    // 无论有无内容，大纲都要渲染
+    if (data.outline && data.outline.sections && data.outline.sections.length) {
       renderOutline(data.outline);
-    } else {
+    } else if (!data.content) {
       currentStep = 1;
     }
+
     showStep(currentStep);
   } catch(e) { toast('加载失败: ' + e.message, 'error'); }
 }

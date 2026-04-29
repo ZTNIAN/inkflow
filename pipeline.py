@@ -1,6 +1,6 @@
 """核心管线 — 公众号/头条文章生成 v3（参考链接抓取+图片建议+批量生成+排版模板）"""
 from __future__ import annotations
-import json, uuid, re, html2text
+import json, uuid, re, html2text, statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timezone
@@ -109,6 +109,7 @@ class StyleProfile:
     argument_logic: str = ""
     rhetoric_preferences: str = ""
     metaphor_source: str = ""
+    persona: str = ""
     # v2: 互动模式
     interaction_mode: str = ""
     reader_address: str = ""
@@ -189,6 +190,7 @@ class Pipeline:
         sentences = [s.strip() for s in re.split(r'[。！？!?\n]', text) if len(s.strip()) > 2]
         sentence_lens = [len(s) for s in sentences]
         avg_sent_len = round(sum(sentence_lens) / len(sentence_lens), 1) if sentence_lens else 0
+        sent_std = round(statistics.stdev(sentence_lens), 1) if len(sentence_lens) >= 2 else 0
         short_sent = sum(1 for l in sentence_lens if l <= 15)
         short_pct = round(short_sent / len(sentence_lens) * 100, 1) if sentence_lens else 0
 
@@ -196,6 +198,7 @@ class Pipeline:
         paras = [p.strip() for p in re.split(r'\n{2,}', text) if len(p.strip()) > 10]
         para_lens = [len(p) for p in paras]
         avg_para_len = round(sum(para_lens) / len(para_lens), 1) if para_lens else 0
+        para_std = round(statistics.stdev(para_lens), 1) if len(para_lens) >= 2 else 0
 
         # 标点
         total_punct = sum(1 for c in text if c in '，。！？、；：""''（）…—·')
@@ -229,8 +232,10 @@ class Pipeline:
 
         return {
             "avg_sentence_length": avg_sent_len,
+            "sentence_length_std": sent_std,
             "short_sentence_pct": short_pct,
             "avg_paragraph_length": avg_para_len,
+            "paragraph_length_std": para_std,
             "punctuation_density": punct_density,
             "question_mark_pct": q_pct,
             "exclamation_pct": e_pct,
@@ -246,9 +251,9 @@ class Pipeline:
         stats = self._analyze_style_stats(samples)
 
         stats_summary = (
-            f"平均句长：{stats.get('avg_sentence_length', '?')}字\n"
+            f"平均句长：{stats.get('avg_sentence_length', '?')}字（标准差{stats.get('sentence_length_std', '?')}）\n"
             f"短句占比：{stats.get('short_sentence_pct', '?')}%\n"
-            f"平均段长：{stats.get('avg_paragraph_length', '?')}字\n"
+            f"平均段长：{stats.get('avg_paragraph_length', '?')}字（标准差{stats.get('paragraph_length_std', '?')}）\n"
             f"问号占比：{stats.get('question_mark_pct', '?')}%\n"
             f"感叹号占比：{stats.get('exclamation_pct', '?')}%\n"
             f"高频词：{'、'.join(w['word'] for w in stats.get('top_words', [])[:10])}\n"
@@ -266,6 +271,7 @@ class Pipeline:
 
 请输出 JSON：
 {{
+  "persona": "一句话人格描述（如：温暖治愈型毒舌，像掏心窝子的损友。要立体、有画面感）",
   "argument_logic": "论证逻辑描述（如：先破后立、现象-本质-方案、层层递进）",
   "rhetoric_preferences": "高频修辞手法（如：反问、排比、对比、反讽、类比）",
   "metaphor_source": "主要隐喻来源领域（如：战争、商业、生活、自然、科技）",
@@ -276,9 +282,10 @@ class Pipeline:
 }}
 
 要求：
-1. 从实际文本中提炼，不要臆测
-2. argument_logic 解释作者如何组织观点，给出具体例子
-3. interaction_mode 说明作者和读者之间建立了什么关系"""
+1. persona 要像一句话人设，让读到的人立刻能想象出作者是个什么形象
+2. 从实际文本中提炼，不要臆测
+3. argument_logic 解释作者如何组织观点，给出具体例子
+4. interaction_mode 说明作者和读者之间建立了什么关系"""
 
         soul_resp = with_retry(lambda: self.llm.complete([
             Message("system", "你是写作风格分析师，专注分析作者的思维方式和互动模式。只输出合法 JSON。"),
@@ -297,16 +304,17 @@ class Pipeline:
   "sentence_patterns": ["句式特征1", "句式特征2", ...],
   "vocabulary": ["惯用词1", "惯用词2", ...],
   "punctuation_habits": "标点使用习惯描述",
-  "opening_excerpt": "从样本中挑选一段最有代表性的开头原文（不超过200字）",
-  "transition_excerpt": "从样本中挑选一段最有代表性的转折/过渡原文（不超过200字）",
-  "ending_excerpt": "从样本中挑选一段最有代表性的结尾原文（不超过200字）",
-  "dense_excerpt": "从样本中挑选一段最能体现其用词和句式特点的段落（不超过200字）"
+  "opening_excerpt": "从样本中选取一段最能体现作者开篇方式的原文——是故事开头、设问开头、还是金句开头？（不超过150字）",
+  "transition_excerpt": "从样本中选取一段最能体现作者转折/推进方式的原文——作者如何从一个点过渡到下一个点？（不超过150字）",
+  "ending_excerpt": "从样本中选取一段最能体现作者收束方式的原文——是总结、反问、还是金句收尾？（不超过150字）",
+  "signature_excerpt": "从样本中选取一段词汇、句式、修辞特征最密集的原文——读这一段就能感受到作者的味道（不超过150字）"
 }}
 
 要求：
-1. excerpt 字段必须是样本中的**原文**，不要改写，不要拼接
-2. vocabulary 至少列出 10 个高频词
-3. sentence_patterns 列出 3-5 个典型的句式模式"""
+1. excerpt 字段必须是样本中的**原文**，不要改写、不要拼接
+2. 选段标准：优先选"换了别人不会这么写"的段落，而不是场景描写等通用内容
+3. vocabulary 至少列出 10 个高频词
+4. sentence_patterns 列出 3-5 个典型的句式模式"""
 
         text_resp = with_retry(lambda: self.llm.complete([
             Message("system", "你是写作风格分析师，擅长提取具体特征和原文片段。只输出合法 JSON。"),
@@ -328,13 +336,14 @@ class Pipeline:
             argument_logic=soul_data.get("argument_logic", ""),
             rhetoric_preferences=soul_data.get("rhetoric_preferences", ""),
             metaphor_source=soul_data.get("metaphor_source", ""),
+            persona=soul_data.get("persona", ""),
             interaction_mode=soul_data.get("interaction_mode", ""),
             quant_metrics=stats,
             sample_excerpts={
                 "opening": text_data.get("opening_excerpt", ""),
                 "transition": text_data.get("transition_excerpt", ""),
                 "ending": text_data.get("ending_excerpt", ""),
-                "dense": text_data.get("dense_excerpt", ""),
+                "signature": text_data.get("signature_excerpt", ""),
             },
         )
 
@@ -661,7 +670,8 @@ JSON 格式示例：
         user_parts = []
 
         # 系统层：核心人格 + 论证逻辑
-        system_parts.append(f"## 你必须模仿的写作风格\n核心人格：{style_profile.tone}")
+        persona = style_profile.persona or style_profile.tone
+        system_parts.append(f"## 你必须模仿的写作风格\n核心人格：{persona}")
         if style_profile.argument_logic:
             system_parts.append(f"论证逻辑：{style_profile.argument_logic}")
         if style_profile.rhetoric_preferences:
@@ -696,8 +706,8 @@ JSON 格式示例：
             excerpt_lines.append(f"### 过渡示例\n{ex['transition']}")
         if ex.get("ending"):
             excerpt_lines.append(f"### 结尾示例\n{ex['ending']}")
-        if ex.get("dense"):
-            excerpt_lines.append(f"### 风格范本\n{ex['dense']}")
+        if ex.get("signature"):
+            excerpt_lines.append(f"### 风格范本\n{ex['signature']}")
         if excerpt_lines:
             system_parts.append(f"## 原文范文（模仿这个味道）\n" + "\n\n".join(excerpt_lines))
 

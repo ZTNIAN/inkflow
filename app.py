@@ -296,6 +296,7 @@ async def extract_style(
                 "punctuation_habits": profile.punctuation_habits,
                 "sample_summary": profile.sample_summary,
                 # v2
+                "persona": profile.persona,
                 "argument_logic": profile.argument_logic,
                 "rhetoric_preferences": profile.rhetoric_preferences,
                 "metaphor_source": profile.metaphor_source,

@@ -676,9 +676,13 @@ function showNewArticle() {
 async function loadArticle(id) {
   clearAutoSave();
   document.getElementById('contentEditor').value = '';
+  revisionHistory = [];
+  renderRevisionHistory();
   try {
     const resp = await fetch(`/api/articles/${id}`);
+    if (!resp.ok) { toast('加载失败: 文章不存在', 'error'); return; }
     const data = await resp.json();
+    console.log('loadArticle:', { id, hasContent: !!data.content, contentLen: (data.content||'').length, hasOutline: !!data.outline, sectionsCount: data.outline?.sections?.length, hasHtml: !!data.html });
     currentArticle = {
       id: data.id, topic: data.topic, platform: data.platform, mode: data.mode,
       sourceText: data.source_text || '', material: data.material || null,
@@ -726,13 +730,21 @@ async function loadArticle(id) {
 
     // 无论有无内容，大纲都要渲染
     if (data.outline && data.outline.sections && data.outline.sections.length) {
-      renderOutline(data.outline);
+      try {
+        renderOutline(data.outline);
+        console.log('renderOutline OK');
+      } catch(e) {
+        console.error('renderOutline error:', e);
+        toast('大纲渲染异常: ' + e.message, 'error');
+      }
     } else if (!data.content) {
       currentStep = 1;
     }
 
     showStep(currentStep);
-  } catch(e) { toast('加载失败: ' + e.message, 'error'); }
+    console.log('loadArticle done, step:', currentStep);
+  } catch(e) { toast('加载失败: ' + e.message, 'error'); console.error(e); }
+}
 }
 
 function goStep(n) {
@@ -976,10 +988,13 @@ async function generateOutline() {
 }
 
 function renderOutline(outline) {
+  if (!outline || !outline.sections) return;
   const tc = document.getElementById('titleCandidates');
-  tc.innerHTML = outline.title_candidates.map((t, i) => `
+  if (!tc) return;
+  const titles = outline.title_candidates || [];
+  tc.innerHTML = titles.map((t, i) => `
     <div class="title-candidate ${t === outline.selected_title ? 'selected' : ''}"
-         onclick="selectTitle(this, '${t.replace(/'/g, "\\'")}')">
+         onclick="selectTitle(this, '${t.replace(/'/g, "\\'").replace(/"/g, "&quot;")}')">
       <div class="title-text">${t}</div>
     </div>
   `).join('');

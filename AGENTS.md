@@ -8,7 +8,7 @@ InkFlow — AI 写作工坊。Python FastAPI + 原生 HTML/CSS/JS SPA。从选�
 
 ## OpenCode Skill 集成
 
-本仓库启用了 addyosmani/agent-skills 的全部 20 个技能，位于全局 `~/.config/opencode/skills/`。
+本仓库启用了 addyosmani/agent-skills 的全部 20 个技能 + mattpocock/skills 的 6 个技能，位于全局 `~/.config/opencode/skills/`。
 
 ### 核心规则
 
@@ -21,9 +21,10 @@ InkFlow — AI 写作工坊。Python FastAPI + 原生 HTML/CSS/JS SPA。从选�
 
 | 用户意图 | 自动激活的 Skill |
 |---------|-----------------|
-| 新功能 / 新特性 | `spec-driven-development` → `incremental-implementation` + `test-driven-development` |
+| 新功能 / 新特性 | `spec-driven-development` → `incremental-implementation` + `tdd` |
+| 对齐需求 / 梳理方案 | `grill-me`（mattpocock） |
 | 规划 / 分解任务 | `planning-and-task-breakdown` |
-| Bug / 异常行为 | `debugging-and-error-recovery` |
+| Bug / 异常行为 | `diagnose`（mattpocock）→ `debugging-and-error-recovery` |
 | 代码审查 | `code-review-and-quality` |
 | 重构 / 简化 | `code-simplification` |
 | API 或接口设计 | `api-and-interface-design` |
@@ -35,6 +36,7 @@ InkFlow — AI 写作工坊。Python FastAPI + 原生 HTML/CSS/JS SPA。从选�
 | CI/CD | `ci-cd-and-automation` |
 | 弃用 / 迁移 | `deprecation-and-migration` |
 | 文档 / 架构决策 | `documentation-and-adrs` |
+| 省 token / 长 session | `caveman`（mattpocock，按需） |
 
 ### 生命周期映射
 
@@ -42,8 +44,8 @@ OpenCode 不支持 `/spec`、`/plan` 等斜杠命令。agent 必须内部遵循�
 
 - **DEFINE** → `spec-driven-development`
 - **PLAN** → `planning-and-task-breakdown`
-- **BUILD** → `incremental-implementation` + `test-driven-development`
-- **VERIFY** → `debugging-and-error-recovery`
+- **BUILD** → `incremental-implementation` + `tdd`
+- **VERIFY** → `diagnose` → `debugging-and-error-recovery`
 - **REVIEW** → `code-review-and-quality`
 - **SHIP** → `shipping-and-launch`
 
@@ -52,9 +54,10 @@ OpenCode 不支持 `/spec`、`/plan` 等斜杠命令。agent 必须内部遵循�
 对每个请求：
 
 1. 判断是否有 skill 适用（哪怕只有 1% 可能）
-2. 使用 `skill` 工具调用合适的 skill
-3. 严格遵循 skill 工作流
-4. 只有在必需步骤（spec、plan 等）完成后才进入实现
+2. 优先检查 mattpocock skill（grill-me/diagnose 等前置 skill），再检查 agent-skills
+3. 使用 `skill` 工具调用合适的 skill
+4. 严格遵循 skill 工作流
+5. 只有在必需步骤完成后才进入实现
 
 ### 反合理化
 

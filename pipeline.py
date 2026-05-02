@@ -1123,20 +1123,26 @@ JSON 格式示例：
 ## 文章结构
 开头 → {' → '.join(s.get('title', '') for s in sections)} → 结尾
 
+## 图片尺寸规范
+- 封面图（文章首图）：1080 x 460px，比例 2.35:1，用于公众号文章封面
+- 正文图（配图）：900 x 600px，比例 3:2，用于文章内插图
+
 请输出 JSON 数组：
 [
   {{
-    "position": "位置描述",
-    "suggestion": "配图类型",
+    "position": "位置描述（如：标题上方/第一节开头）",
+    "suggestion": "配图类型（如：封面图/信息图/场景图）",
     "description": "中文描述",
-    "ai_prompt": "Midjourney style English prompt, cinematic, high quality, --ar 16:9"
+    "size": "建议尺寸（如：1080x460px 或 900x600px）",
+    "ai_prompt": "Midjourney style English prompt, cinematic, high quality, --ar 2.35:1"
   }}
 ]
 
 要求：
-1. 开头一张封面图，每个小节一张配图
-2. ai_prompt 用英文，包含风格、构图、色调描述
-3. 图片风格统一，适合公众号阅读场景"""
+1. 第一张必须是封面图，尺寸 1080x460px，ai_prompt 用 --ar 2.35:1
+2. 正文配图尺寸 900x600px，ai_prompt 用 --ar 3:2
+3. ai_prompt 用英文，包含风格、构图、色调描述
+4. 图片风格统一，适合公众号阅读场景"""
 
         resp = with_retry(lambda: self.llm.complete([
             Message("system", "你是配图策划师，擅长为新媒体文章设计视觉方案。只输出合法 JSON 数组。"),

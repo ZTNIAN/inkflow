@@ -1579,6 +1579,7 @@ async function suggestImages() {
       el.innerHTML = data.suggestions.map(s => `
         <div style="padding:10px;background:var(--bg);border-radius:8px;margin-bottom:8px;border-left:3px solid var(--purple)">
           <div style="font-weight:600;margin-bottom:4px">📍 ${s.position}</div>
+          ${s.size ? `<div style="font-size:11px;color:var(--blue);margin-bottom:4px">📐 推荐尺寸：${s.size}</div>` : ''}
           <div style="color:var(--text2)">${s.description}</div>
         </div>
       `).join('');
